@@ -1,31 +1,33 @@
 # parpi-resistance — decision log
 
 Every choice made while rebuilding the hierarchical single-cell olaparib project, and why.
-Newest entries are at the bottom. Last updated: 2026-11-02.
+Newest entries are at the bottom. Last updated: 2026-11-03.
 
-## 1. Assessment of the original project
+## 1. Starting point: the v1 paper
 
 The starting point was *Attention-Based Hierarchical Graph Autoencoder for Dose-Specific
-Single-Cell Resistance Dynamics* (Satyal, Long, Gao).
+Single-Cell Resistance Dynamics* (Satyal, Long, Gao). It contributed the gene → pathway → cell
+hierarchy with attention and the idea of resistance as a dose trajectory. Its evaluation was at
+the dose level, which leaves these limitations for v2 to address:
 
-| Problem found | Why it matters |
+| v1 limitation | Why it matters |
 |---|---|
-| One graph per dose, so the dose-level model learns from **9 samples** | The LSTM, dose embeddings and extrapolation rest on 9 points |
-| T640 "extrapolation" appends an untrained embedding slot | There is no data behind the T640 prediction |
-| Reported T320 prediction (cos-sim 0.983) is worse than copying T160 (≈0.998, from Fig. 8 drift 0.0023) | The headline result loses to a trivial baseline |
-| Resistance labels are model **inputs** (5 of 7 cell features) and also the **target** | Label leakage |
-| The autoencoder reconstructs its own embeddings | Low loss is not evidence of biology |
-| DEGs and enrichment re-run per dose, so every graph has different nodes | Dose clusters may reflect node sets rather than biology |
-| One cell line only; CPA comparison not like-for-like | No evidence the model generalises |
+| One graph per dose, about 9 training units | Dose embeddings and extrapolation rest on few points |
+| The T640 trajectory has no data behind it | It can't be validated |
+| The T320 result (cos-sim 0.983) wasn't compared with copying T160 (≈0.998, Fig. 8 drift 0.0023) | Neighbouring doses are already very similar |
+| Resistance labels were among the cell inputs (5 of 7 features) as well as the target | The model can read the answer from its input |
+| The autoencoder reconstructed its own embeddings | A low loss is easy to reach |
+| DEGs and enrichment computed per dose, so node sets differed | Dose differences may partly reflect different graphs |
+| One cell line; the CPA comparison used a different setup | Generalisation untested |
 
-**Decision:** rebuild rather than refactor. Keep the core idea (gene → pathway → cell
-hierarchy with attention) and fix the rest.
+**Decision:** build v2 in a fresh repository. Keep the core idea (gene → pathway → cell
+hierarchy with attention) and strengthen training and evaluation around it.
 
 ## 2. Scope choices (asked and answered)
 
 | Question | Choice | Reason |
 |---|---|---|
-| Starting point | **Fresh repository** | The original's structure carries the problems above |
+| Starting point | **Fresh repository** | Cell-level learning and the new evaluation needed a different structure from v1 |
 | What users get | **All three:** per-cell resistance score, dose-response curves, pathway explanations | Requested |
 | Breast cancer | **Find data first, then decide** | Avoid claiming breast performance without breast data |
 | Graph model | **Baselines + graph model**; the graph model ships only if it wins | Complexity has to earn its place |
@@ -147,6 +149,10 @@ hierarchy with attention) and fix the rest.
 | **Kuramochi-10x (platform check, report-only)**, variant A ridge | **AUROC C vs T320.A = 0.9999.** Mean score: C 0.09, T10.A 0.44, T320.A 0.70; **T10.P 0.18–0.21, T320.P 0.36**. Hierarchical is the same (0.99996). → **Platform shift is ruled out** as the cause of the PDX failure: the same line on 10x is separated almost perfectly. The ".P" samples score far below ".A" at the same dose but above control, consistent with P = drug withdrawn (partial reversal with some retained adaptation, as in França's epigenetically reinforced states). P's meaning is still unconfirmed |
 | Caveat | Kuramochi-10x is the *same cell line* as the training Kuramochi, so it tests platform robustness, not new biology |
 | Final PDX evaluation set up (`configs/final_pdx.yaml`) | Identical to `multiline_a.yaml` plus the PDX sets (a test enforces this). It reuses the trained variant-A models. **Run once; the result is reported whatever it is** |
+| **FINAL pre-registered PDX evaluation** (variant A ridge, run once) | **AUROC vehicle vs resistant = 0.614 (curated) → fails the pre-registered 0.65 gate.** Mean score per tumor: V1 0.361, V2 0.337 │ R1.1 0.357, R1.2 0.340, R3.1 0.359, **R3.2 0.543** │ R3.V 0.358. The AUROC comes almost entirely from **one tumor (R3.2)**; the other three resistant tumors score like vehicle. Hierarchical 0.601 (same pattern). Report-only: all cells 0.650 (ridge), persisters 0.285–0.338 vs vehicle 0.283/0.323 (no difference). The cell-MAE gate criterion also fails (0.228 vs ≤0.8 × 0.264) |
+| What improved vs the Kuramochi-only model | Untreated PDX tumors now score low and alike (0.34–0.36, previously 0.54 vs 0.64): multi-line training removed the tumor-to-tumor noise that dominated before. But in-vivo resistance (3 of 4 tumors) isn't marked by the in-vitro adaptation programme |
+| Conclusion | The score is a **validated in-vitro measure** of olaparib adaptation in ovarian cancer cell lines: it transfers across lines (dose Spearman 0.70–0.99, control-vs-top AUROC 0.76–0.94 in a held-out line) and across platforms (0.9999). It is **not validated in vivo** (PDX fails) and must not be presented as a tumor or patient resistance score |
+| Bug noted | `scripts/summarize_external.py` hard-coded `outputs/metrics` and first showed the old results; it now takes the metrics folder as an argument. The gate always read the correct folder |
 
 ## 8. Open items
 
@@ -162,7 +168,8 @@ hierarchy with attention) and fix the rest.
 - [x] Pathway concordance Kuramochi ↔ PDX (**no transfer**; dose axis dominated by translation/MYC).
 - [x] Find COV362 (and OVSAHO, Kuramochi-10x): GSE247689, GSE247688.
 - [x] Run multi-line variants A and B (**A selected, ridge**; platform shift ruled out).
-- [ ] Single final PDX evaluation of the selected variant.
+- [x] Single final PDX evaluation: **AUROC 0.614, fails the gate** (one of four resistant tumors stands out).
+- [ ] Decide release scope.
 - [ ] Confirm the GSE202435 (breast) layout; find COV362's accession.
 - [ ] First real-data run, `uv run parpi reproduce -c configs/default.yaml`, then `parpi gate`.
 - [x] Push to GitHub.
@@ -178,3 +185,10 @@ hierarchy with attention) and fix the rest.
 6. Dose-response curves and calibration of the uncertainty estimates.
 7. Release: model on the HF Hub, app on an HF Space; **research use only**.
 8. Patient data: search for public pre/post-PARPi patient scRNA-seq. If found, it becomes the key test of whether the score transfers to patients. Clinical use would need prospective validation and regulatory review, which is out of scope.
+
+## 10. Presentation (2026-11-03)
+
+| Decision | Reason |
+|---|---|
+| v1 limitations reworded neutrally in `docs/DESIGN.md` and here ("Limitations of v1 and how v2 addresses them"), same facts | The v1 paper is the author's own and stays on the CV; v2 is presented as a follow-up that tests and extends it, not an audit of it. The paper's core architecture won within a cell line under stricter evaluation |
+| Complete project guide written as the project doc *PARPi Resistance Project: Complete Guide* | One place to follow up later: v1, v2 design, data, models, evaluation, results, claims, engineering, CV and interview prep |

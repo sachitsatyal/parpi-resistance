@@ -1,22 +1,25 @@
-# Design: what was wrong before, and what this rebuild does instead
+# Design: from v1 to v2
 
-This project replaces the hierarchical graph autoencoder described in *Attention-Based
-Hierarchical Graph Autoencoder for Dose-Specific Single-Cell Resistance Dynamics*. Its core
-idea is kept: a gene → pathway → cell hierarchy with attention. The problems below are why
-the rest was redesigned rather than refactored.
+v2 extends the model introduced in *Attention-Based Hierarchical Graph Autoencoder for
+Dose-Specific Single-Cell Resistance Dynamics* (Satyal, Long, Gao). Its core idea is kept: a
+gene → pathway → cell hierarchy with attention, treating resistance as a trajectory across doses.
+v2 changes how the model is trained and tested, so the idea can be evaluated per cell, against
+strong baselines, and on data it has never seen.
 
-## Problems in the original and the fix for each
+## Limitations of v1 and how v2 addresses them
 
-| # | Problem in the original | Consequence | Fix here |
+These follow from the scope of the original, dose-level evaluation; they are not errors in the idea.
+
+| # | v1 limitation | Why it matters | How v2 addresses it |
 |---|---|---|---|
-| 1 | One graph per dose, so the dose-level model learns from **9 samples** | The LSTM, dose embeddings and "extrapolation" are fitted to 9 points | The unit of learning is the **cell** (thousands of samples). Dose is a supervised target, not a learned slot |
-| 2 | T640 "extrapolation" appends an untrained embedding slot | Nothing supports the T640 prediction | Out-of-range doses are flagged `extrapolated=True` and never presented as validated |
-| 3 | Reported T320 prediction (cos-sim 0.983) is **worse than copying T160** (real T160→T320 cos-distance 0.0023 → cos-sim ≈ 0.998) | The headline result loses to a trivial predictor | Every metric is reported against "copy nearest dose", "linear interpolation" and "predict the mean" |
-| 4 | Resistance labels (5 of 7 cell features) are **inputs** and also the **target** | Label leakage; the reported 54% accuracy is hard to interpret | Labels are only targets. A depth-only model checks for technical confounding |
-| 5 | Autoencoder reconstructs **its own embeddings** | Low loss is close to guaranteed and not evidence of biology | The reconstruction target is real data (pathway scores) |
-| 6 | DEGs and enrichment re-run **per dose**, so every graph has different genes and pathways | Dose clusters in t-SNE partly reflect different node sets | One fixed, checksummed pathway library and gene universe for all data |
-| 7 | Only one cell line | No evidence of generalisation | External validation on other cell lines and PDX samples from the same study, plus an exploratory breast line |
-| 8 | CPA comparison 0.98 vs 0.13 | Implies mismatched evaluation, not a better model | Baselines share the same features, splits and metrics |
+| 1 | Dose-level learning: one graph per dose, about 9 training units | Dose embeddings and extrapolation rest on few points | The unit of learning is the **cell** (thousands of samples); dose is a supervised target |
+| 2 | The T640 trajectory has no data behind it | Can't be validated | Out-of-range doses are flagged `extrapolated=True`, never presented as predictions |
+| 3 | The T320 result wasn't compared with a trivial baseline | Neighbouring doses are already very similar (T160→T320 drift 0.0023, cos-sim ≈ 0.998) | Every metric is reported next to "copy nearest dose", "linear interpolation" and "predict the mean" |
+| 4 | Resistance labels were among the cell input features as well as the target | The model can read the answer from its input | Labels are targets only; a depth-only model checks for technical confounding |
+| 5 | The autoencoder reconstructed its own embeddings | A low loss is easy to reach | The reconstruction target is real data (pathway scores) |
+| 6 | DEGs and enrichment computed per dose, so node sets differed between doses | Dose differences may partly reflect different graphs | One fixed, checksummed pathway library and gene universe for all data |
+| 7 | One cell line | Generalisation untested | Held-out cell lines (COV362, OVSAHO), a second platform, and PDX tumors from the same study |
+| 8 | The CPA comparison used a different setup from v1 | Not like-for-like | All models share the same features, splits and metrics |
 
 ## Features: per-cell rank scores
 

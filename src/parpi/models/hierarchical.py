@@ -1,14 +1,14 @@
 """Hierarchical pathway-attention network (gene -> pathway -> cell).
 
-What is kept from the original idea, and what is fixed
-------------------------------------------------------
-* Kept: a biological hierarchy (genes feed pathways, pathways feed the cell
-  representation) and attention weights that say which pathways matter.
-* Fixed: the unit of learning is the *cell* (thousands of samples), not the
-  dose graph (nine samples). Pathway definitions are identical for every cell
-  and dataset. Labels are never model inputs. The reconstruction target is
-  real data (pathway scores), not the model's own embeddings. Dose is a
-  supervised target here, not an input slot, so the model can be applied to
+v1 -> v2
+--------
+* Kept from v1 (Satyal, Long, Gao): a biological hierarchy (genes feed
+  pathways, pathways feed the cell representation) and attention weights that
+  say which pathways matter.
+* Extended in v2: the unit of learning is the *cell* (thousands of samples)
+  rather than the dose graph. Pathway definitions are identical for every cell
+  and dataset. Labels are targets only. The reconstruction target is real data
+  (pathway scores). Dose is a supervised target, so the model can be applied to
   cells whose dose is unknown.
 
 Layers
