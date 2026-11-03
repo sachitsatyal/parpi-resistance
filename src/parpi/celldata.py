@@ -108,7 +108,7 @@ class CellData:
             X=self.X,
             obs=self.obs.astype({c: str for c in self.obs.columns if self.obs[c].dtype == object}),
         )
-        adata.var_names = self.genes
+        adata.var_names = pd.Index(self.genes)
         adata.write_h5ad(path)
 
     def write_npz(self, path: str | Path) -> None:

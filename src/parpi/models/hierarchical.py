@@ -49,6 +49,10 @@ except ImportError as err:  # pragma: no cover - exercised only without torch
 class GenePathwayLayer(nn.Module):
     """Masked, per-pathway softmax pooling of gene ranks into pathway activations."""
 
+    # Registered buffers, declared so type checkers know they are tensors.
+    gene_idx: torch.Tensor
+    set_idx: torch.Tensor
+
     def __init__(self, membership: sp.csr_matrix, heads: int) -> None:
         super().__init__()
         coo = membership.tocoo()
@@ -81,6 +85,10 @@ class GenePathwayLayer(nn.Module):
 
 
 class HiPathNet(nn.Module):
+    # Registered buffers, declared so type checkers know they are tensors.
+    act_mean: torch.Tensor
+    act_std: torch.Tensor
+
     def __init__(self, membership: sp.csr_matrix, cfg: HierarchicalConfig, n_states: int) -> None:
         super().__init__()
         k = membership.shape[1]

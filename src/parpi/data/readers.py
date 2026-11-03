@@ -6,6 +6,7 @@ import gzip
 import re
 import warnings
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -55,7 +56,8 @@ def _read_h5ad(path: Path) -> CellData:
     adata = ad.read_h5ad(path)
     X = adata.raw.X if adata.raw is not None else adata.X
     genes = adata.raw.var_names if adata.raw is not None else adata.var_names
-    obs = adata.obs.reset_index(names="barcode")
+    # read_h5ad loads obs into memory as a DataFrame; the stubs also allow a lazy Dataset2D.
+    obs = cast(pd.DataFrame, adata.obs).reset_index(names="barcode")
     return CellData(X=sp.csr_matrix(X), obs=obs, genes=np.asarray(genes))
 
 

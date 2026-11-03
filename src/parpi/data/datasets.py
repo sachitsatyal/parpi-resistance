@@ -136,8 +136,8 @@ def annotate(cd: CellData, cfg: DatasetConfig) -> CellData:
         if cfg.state_column not in obs:
             raise KeyError(f"{cfg.name}: state column '{cfg.state_column}' not found")
         raw_state = obs[cfg.state_column]
-        keep = raw_state.notna() & ~raw_state.astype(str).isin(cfg.state_ignore)
-        obs["state"] = raw_state.astype(str).where(keep)
+        has_state = raw_state.notna() & ~raw_state.astype(str).isin(cfg.state_ignore)
+        obs["state"] = raw_state.astype(str).where(has_state)
     cd.obs = obs
     return cd
 
