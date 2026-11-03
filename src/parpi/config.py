@@ -81,7 +81,7 @@ class HierarchicalConfig(_Strict):
     heads: int = 4
     dim: int = 64
     dropout: float = 0.2
-    lr: float = 1e-3
+    lr: float = 3e-3
     weight_decay: float = 1e-4
     epochs: int = 60
     batch_size: int = 256

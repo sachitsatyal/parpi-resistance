@@ -22,4 +22,4 @@ train:
   models: [ridge, hgb, hierarchical]
   ensemble_size: 2
   seed: 7
-  hierarchical: {epochs: 15, batch_size: 128, patience: 4, dim: 32, heads: 2}
+  hierarchical: {epochs: 40, batch_size: 64, patience: 8, dim: 32, heads: 2}
