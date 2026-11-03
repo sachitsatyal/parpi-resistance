@@ -52,7 +52,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with: { python-version: "3.12" }
       - run: uv sync --locked --extra app
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: release-outputs, path: outputs }
       - name: Push model bundle to the Hub (tagged with the release version)
         env: { HF_TOKEN: "${{ secrets.HF_TOKEN }}" }
