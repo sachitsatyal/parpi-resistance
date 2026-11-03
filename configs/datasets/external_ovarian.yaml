@@ -1,0 +1,22 @@
+# Independent ovarian test sets from the same study (SuperSeries GSE247691).
+# Never used for training or model selection.
+datasets:
+  - name: pdx_ovarian
+    role: external
+    cancer_type: ovarian
+    source: geo
+    accession: GSE247690
+    files: ["*counts*"]
+    condition_regex: '(vehicle|persister|resistant)'
+    # Persisters are short-term drug-tolerant cells, not resistant: excluded from AUROC.
+    resistant_map: {vehicle: 0, resistant: 1}
+  # COV362 (BRCA1-mutant HGSOC) olaparib-adapted line. Find its SubSeries with
+  # `parpi inspect` on the GSE2476xx accessions listed under GSE247691, then enable:
+  # - name: cov362
+  #   role: external
+  #   cancer_type: ovarian
+  #   source: geo
+  #   accession: GSE2476XX
+  #   files: ["*cov362*"]
+  #   condition_regex: '(C|T\d+)'
+  #   resistant_map: {C: 0, T320: 1}

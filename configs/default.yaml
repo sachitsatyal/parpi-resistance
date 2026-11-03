@@ -1,0 +1,32 @@
+# Production run on public GEO data. Every result is traceable to this file
+# (its hash is stored in the model metadata and model card).
+project: parpi-resistance
+data_dir: data
+output_dir: outputs
+includes:
+  - datasets/kuramochi_gse206125.yaml
+  - datasets/external_ovarian.yaml
+  - datasets/external_breast.yaml
+
+qc:
+  min_genes: 200
+  min_counts: 500
+  max_counts: 50000
+  max_pct_mito: 20.0
+  min_cells_per_gene: 10
+
+features:
+  # Fixed, versioned pathway definitions shared by every dataset.
+  gene_sets: "enrichr:MSigDB_Hallmark_2020+enrichr:Reactome_2022"
+  min_set_size: 10
+  max_set_size: 300
+  min_gene_coverage: 0.6
+
+split:
+  strategy: leave_dose_out
+  n_folds: 5
+
+train:
+  models: [ridge, hgb, hierarchical]
+  ensemble_size: 5
+  seed: 42

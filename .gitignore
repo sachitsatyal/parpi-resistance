@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+# Data and run outputs are versioned by DVC / CI artifacts, not git.
+/data/
+/outputs/
+/.smoke/
+/mlruns/
+predictions.csv
+dose_curve.csv

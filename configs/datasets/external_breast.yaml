@@ -1,0 +1,11 @@
+# Exploratory breast check: HCC1806 TNBC parental vs talazoparib-resistant (Sci Rep 2022).
+# A different PARP inhibitor and a single cell line: results are reported, not claimed.
+datasets:
+  - name: hcc1806_breast
+    role: external
+    cancer_type: breast
+    source: geo
+    accession: GSE202435
+    files: ["*"]
+    condition_regex: '(?i)(parental|talar)'
+    resistant_map: {parental: 0, Parental: 0, TalaR: 1, talar: 1}
