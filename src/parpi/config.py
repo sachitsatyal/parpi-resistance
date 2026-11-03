@@ -50,6 +50,13 @@ class DatasetConfig(_Strict):
     metadata: str | None = None
     metadata_cell_column: str = "cell"
     metadata_sample_column: str | None = None
+    # True: keep only cells present in the metadata (authors' curated set).
+    # False: keep every cell; metadata columns are filled where available.
+    metadata_required: bool = True
+    # Regex with one group taking each cell's sample label from its barcode
+    # (e.g. "bc_40uM_123.456" -> "40uM"). When set together with
+    # `metadata_sample_column`, the metadata label is only used to cross-check doses.
+    barcode_sample_regex: str | None = None
     # Values of `state_column` to ignore as states (e.g. the control label "C").
     state_ignore: list[str] = Field(default_factory=list)
     # Synthetic generator settings (source=synthetic only).
@@ -142,10 +149,10 @@ class Config(_Strict):
 def load_config(path: str | Path) -> Config:
     """Load a YAML config. ``includes:`` lists other YAMLs whose datasets are appended."""
     path = Path(path)
-    raw = yaml.safe_load(path.read_text()) or {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     datasets: list[Any] = []
     for inc in raw.pop("includes", []):
-        inc_raw = yaml.safe_load((path.parent / inc).read_text()) or {}
+        inc_raw = yaml.safe_load((path.parent / inc).read_text(encoding="utf-8")) or {}
         datasets.extend(inc_raw.get("datasets", []))
     datasets.extend(raw.pop("datasets", []))
     return Config(datasets=datasets, **raw)

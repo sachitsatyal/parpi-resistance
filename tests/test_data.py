@@ -138,3 +138,56 @@ def test_combined_matrix_with_metadata_and_states(tmp_path):
     assert cd.obs["state"].isna().tolist() == [True, True, False, False]
     row = dict(zip(cd.genes, cd.X[2].toarray().ravel(), strict=True))
     assert row == {"GAPDH": 3, "ACTB": 8, "TP53": 13}  # column 3 of the CSV
+
+
+def test_keep_all_cells_with_barcode_doses_and_cross_check(tmp_path):
+    """GSE206125 reality: half the cells lack metadata and T40 metadata uses another library."""
+    from parpi.data.datasets import load_dataset
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    cells = ["bc_ctrlI_1.1", "bc_ctrlI_2.1", "bc_40uM_1.1", "bc_80uM_1.1"]
+    pd.DataFrame(
+        np.arange(12).reshape(3, 4) + 1, index=["GAPDH", "ACTB", "TP53"], columns=cells
+    ).to_csv(raw / "all.csv.gz")
+    meta = pd.DataFrame(
+        {
+            "cell": ["bc_ctrlI_1.1", "bc_80uM_1.1", "bc_40uM2nd_9.9"],
+            "orig.ident": ["C", "T80", "T40"],
+            "State": ["C", "S4", "S3"],
+        }
+    )
+    meta.to_csv(raw / "meta.tsv.gz", sep="\t", index=False)
+    base = dict(
+        name="k",
+        source="local",
+        path=str(raw),
+        files=["all.csv.gz"],
+        metadata="meta.tsv.gz",
+        metadata_required=False,
+        barcode_sample_regex="^bc_([^_]+)_",
+        metadata_sample_column="orig.ident",
+        dose_map={"ctrlI": 0, "40uM": 40, "80uM": 80, "C": 0, "T40": 40, "T80": 80},
+        state_column="State",
+        state_ignore=["C"],
+    )
+    cd = load_dataset(DatasetConfig(**base), tmp_path)
+    obs = cd.obs.set_index("barcode")
+    assert cd.n_cells == 4  # nobody dropped for missing metadata
+    assert obs["dose_um"].to_dict() == {
+        "bc_ctrlI_1.1": 0,
+        "bc_ctrlI_2.1": 0,
+        "bc_40uM_1.1": 40,
+        "bc_80uM_1.1": 80,
+    }
+    assert obs["state"].isna().to_dict() == {
+        "bc_ctrlI_1.1": True,
+        "bc_ctrlI_2.1": True,
+        "bc_40uM_1.1": True,
+        "bc_80uM_1.1": False,
+    }
+
+    meta.loc[1, "orig.ident"] = "T40"  # contradicts the barcode (80 uM)
+    meta.to_csv(raw / "meta.tsv.gz", sep="\t", index=False)
+    with pytest.raises(ValueError, match="disagrees with metadata"):
+        load_dataset(DatasetConfig(**base), tmp_path)

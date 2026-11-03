@@ -1,7 +1,17 @@
-# França et al., Nature 2024 — Kuramochi (BRCA2-deficient HGSOC) olaparib dose escalation.
-# GEO layout (checked 2026-11-02 with `parpi inspect GSE206125`): one combined count
-# matrix for all doses + a per-cell metadata table (cell, nGene, nUMI, orig.ident,
-# percent.mito, State). orig.ident = dose label (C, T1 ... T320); State = C or S1-S5.
+# França et al., Nature 2024: Kuramochi (BRCA2-deficient HGSOC) olaparib dose escalation.
+#
+# GEO layout (checked 2026-11-03):
+#   GSE206125_kuramochi_all_C_to_T320.csv.gz        genes x 18,209 cells, all doses
+#   GSE206125_kuramochi_C_to_T320_metadata_g1.tsv.gz 8,240 curated cells:
+#       cell, nGene, nUMI, orig.ident (C, T1 ... T320), percent.mito, State (C, S1-S5)
+# Only 7,322 cells appear in both. The metadata's T40 cells come from a second
+# library ("bc_40uM2nd_") that is not in the count matrix, and other doses keep
+# about half their cells (likely G1-phase only, as the file name suggests).
+#
+# Decision: keep every cell in the matrix, read its dose from the barcode prefix,
+# apply the same QC to all doses, and use the published states as labels where they
+# exist (cells without a state are ignored by the state task). The metadata dose
+# label (orig.ident) is used only to cross-check the barcode-derived dose.
 datasets:
   - name: kuramochi
     role: train
@@ -11,10 +21,33 @@ datasets:
     files: ["GSE206125_kuramochi_all_C_to_T320.csv.gz"]
     metadata: "GSE206125_kuramochi_C_to_T320_metadata_g1.tsv.gz"
     metadata_cell_column: cell
+    metadata_required: false
+    barcode_sample_regex: "^bc_([^_]+)_"
     metadata_sample_column: orig.ident
     condition_regex: "^(.+)$"
-    dose_map: {C: 0, T1: 1, T2.5: 2.5, T5: 5, T10: 10, T20: 20, T40: 40, T80: 80, T160: 160, T320: 320}
-    # Published resistance states. Control cells carry "C" (no state) and are
-    # excluded from the state task, matching the paper's 5-state classification.
+    # Both vocabularies map to the same dose: barcode prefixes and orig.ident labels.
+    dose_map:
+      ctrlI: 0
+      1uM: 1
+      2.5uM: 2.5
+      5uM: 5
+      10uM: 10
+      20uM: 20
+      40uM: 40
+      40uM2nd: 40
+      80uM: 80
+      160uM: 160
+      320uM: 320
+      C: 0
+      T1: 1
+      T2.5: 2.5
+      T5: 5
+      T10: 10
+      T20: 20
+      T40: 40
+      T80: 80
+      T160: 160
+      T320: 320
+    # Published resistance states; controls carry "C" (no state) and are ignored.
     state_column: State
     state_ignore: ["C"]

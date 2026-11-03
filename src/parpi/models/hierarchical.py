@@ -202,6 +202,7 @@ class HierarchicalModel:
                 vb = torch.as_tensor(val, device=device)
                 vloss = float(self._loss(X[vb], P[vb], Y[vb], None if S is None else S[vb]))
             self.history.append({"epoch": epoch, "train": total / len(tr), "val": vloss})
+            log.debug("epoch %d train %.4f val %.4f", epoch, total / len(tr), vloss)
             if vloss < best - 1e-5:
                 best, bad = vloss, 0
                 best_state = {k: v.detach().clone() for k, v in self.net.state_dict().items()}

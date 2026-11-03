@@ -122,11 +122,20 @@ def prepare(cfg: Config) -> None:
 
     _, ranks, cov = fs.transform(train, apply_qc=False)
     _save_processed(p["processed"] / "train", Inputs(ranks, fs.pathway_scores(ranks)), train.obs)
+    qc_cols = [c for c in ("total_counts", "n_genes", "pct_mito") if c in train.obs]
+    by_cond = train.obs.groupby("condition")
+    qc_by_condition = by_cond[qc_cols].median().round(2)
+    qc_by_condition["cells"] = by_cond.size()
+    if "state" in train.obs:
+        qc_by_condition["cells_with_state"] = by_cond["state"].count()
     summary: dict[str, Any] = {
         "train": {
             "cells": train.n_cells,
             "gene_coverage": cov,
             "conditions": train.obs["condition"].value_counts().to_dict(),
+            # Per-dose QC medians: a library that differs from its neighbours
+            # (e.g. a re-sequenced dose) shows up here before it biases a model.
+            "qc_by_condition": qc_by_condition.to_dict(orient="index"),
         }
     }
     for d in cfg.external_datasets:
@@ -159,6 +168,14 @@ def cross_validate(cfg: Config, x: Inputs, obs: pd.DataFrame, fs: FeatureSpace) 
             ens.fit(x.take(train_idx), y.take(train_idx), seed=cfg.train.seed + 100 * k)
             pred = ens.predict(x.take(test))
             oof[test], oof_std[test] = pred.score, pred.score_std
+            log.info(
+                "CV %s: fold %d/%d done (held-out doses %s, %.0fs elapsed)",
+                name,
+                k + 1,
+                len(folds),
+                sorted(np.unique(dose[test]).tolist()),
+                time.time() - t0,
+            )
             if (
                 pred.state_proba is not None
                 and pred.state_classes is not None
@@ -230,6 +247,7 @@ def train(cfg: Config) -> None:
 
     y = _targets(obs)
     for name in models:
+        log.info("final fit: %s on all %d cells", name, len(x))
         ens = Ensemble(model_factory(name, cfg, fs), cfg.train.ensemble_size, name)
         ens.fit(x, y, seed=cfg.train.seed)
         ens.pathway_importance()  # compute once now so it is stored inside the bundle

@@ -1,0 +1,21 @@
+# First real-data run: train + cross-validate on Kuramochi (GSE206125) only.
+project: parpi-resistance
+data_dir: data
+output_dir: outputs
+includes:
+  - datasets/kuramochi_gse206125.yaml
+features:
+  gene_sets: "enrichr:MSigDB_Hallmark_2020+enrichr:Reactome_2022"
+  min_set_size: 10
+  max_set_size: 300
+  min_gene_coverage: 0.6
+split:
+  strategy: leave_dose_out
+  n_folds: 5
+train:
+  models: [ridge, hgb, hierarchical]
+  # 3 bootstrap members (was 5): ~40% less compute, still gives an uncertainty spread.
+  ensemble_size: 3
+  seed: 42
+  # Lighter network for CPU: the first run's network stage took >45 min.
+  hierarchical: {epochs: 25, patience: 4, heads: 2, dim: 32, batch_size: 512}

@@ -43,6 +43,9 @@ def load_dataset(cfg: DatasetConfig, data_dir: Path) -> CellData:
         parts = [read_any(f) for f in count_files]
         universe = np.array(sorted(set().union(*[set(p.genes) for p in parts])))
         cd = CellData.concat([p.align_genes(universe)[0] for p in parts])
+        if cfg.barcode_sample_regex:
+            extracted = cd.obs["barcode"].astype(str).str.extract(cfg.barcode_sample_regex)[0]
+            cd.obs["sample"] = extracted.fillna(cd.obs["sample"])
         if cfg.metadata:
             if len(meta_files) != 1:
                 raise FileNotFoundError(
@@ -60,23 +63,44 @@ def attach_metadata(cd: CellData, path: Path, cfg: DatasetConfig) -> CellData:
     key = cfg.metadata_cell_column
     if key not in meta:
         raise KeyError(f"{path.name}: no column '{key}'. Columns: {list(meta.columns)}")
-    meta = meta.drop_duplicates(key).set_index(meta[key].astype(str))
+    meta = meta.drop_duplicates(key)
+    meta.index = meta[key].astype(str)
     matched = cd.obs["barcode"].astype(str).isin(meta.index).to_numpy()
     frac = matched.mean() if len(matched) else 0.0
     log.info("%s: %d / %d cells matched to metadata", cfg.name, matched.sum(), len(matched))
-    if frac < 0.5:
-        examples = cd.obs["barcode"].head(3).tolist(), meta.index[:3].tolist()
-        raise ValueError(
-            f"{cfg.name}: only {frac:.0%} of cells match metadata IDs "
-            f"(counts: {examples[0]}, metadata: {examples[1]})"
-        )
-    cd = cd.subset(cells=matched)
-    extra = meta.loc[cd.obs["barcode"].astype(str)].reset_index(drop=True)
+    if cfg.metadata_required:
+        if frac < 0.5:
+            examples = cd.obs["barcode"].head(3).tolist(), meta.index[:3].tolist()
+            raise ValueError(
+                f"{cfg.name}: only {frac:.0%} of cells match metadata IDs "
+                f"(counts: {examples[0]}, metadata: {examples[1]}). Set "
+                "`metadata_required: false` to keep cells without metadata."
+            )
+        cd = cd.subset(cells=matched)
+    # Left join: cells without metadata get NaN in the metadata columns.
+    extra = meta.reindex(cd.obs["barcode"].astype(str)).reset_index(drop=True)
     extra = extra.drop(columns=[c for c in extra.columns if c in cd.obs.columns or c == key])
     cd.obs = pd.concat([cd.obs.reset_index(drop=True), extra], axis=1)
     if cfg.metadata_sample_column:
-        cd.obs["sample"] = cd.obs[cfg.metadata_sample_column].astype(str)
+        meta_sample = cd.obs[cfg.metadata_sample_column]
+        if cfg.barcode_sample_regex:
+            _check_doses(cd.obs["sample"], meta_sample, cfg)
+        else:
+            cd.obs["sample"] = meta_sample.astype(str).where(meta_sample.notna(), cd.obs["sample"])
     return cd
+
+
+def _check_doses(from_barcode: pd.Series, from_meta: pd.Series, cfg: DatasetConfig) -> None:
+    """Barcode-derived and metadata-derived labels must give the same dose."""
+    a = from_barcode.map(cfg.dose_map)
+    b = from_meta.map(cfg.dose_map)
+    both = a.notna() & b.notna()
+    bad = int((a[both] != b[both]).sum())
+    if bad:
+        raise ValueError(
+            f"{cfg.name}: {bad} cells have a barcode dose that disagrees with metadata"
+        )
+    log.info("%s: barcode doses agree with metadata for %d cells", cfg.name, int(both.sum()))
 
 
 def annotate(cd: CellData, cfg: DatasetConfig) -> CellData:
@@ -104,8 +128,9 @@ def annotate(cd: CellData, cfg: DatasetConfig) -> CellData:
     if cfg.state_column:
         if cfg.state_column not in obs:
             raise KeyError(f"{cfg.name}: state column '{cfg.state_column}' not found")
-        state = obs[cfg.state_column].astype(str)
-        obs["state"] = state.where(~state.isin(cfg.state_ignore))
+        raw_state = obs[cfg.state_column]
+        keep = raw_state.notna() & ~raw_state.astype(str).isin(cfg.state_ignore)
+        obs["state"] = raw_state.astype(str).where(keep)
     cd.obs = obs
     return cd
 

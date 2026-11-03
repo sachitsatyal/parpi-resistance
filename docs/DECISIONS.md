@@ -94,11 +94,31 @@ hierarchy with attention) and fix the rest.
 | Metadata inspected | 8,240 cells. Columns: `cell`, `nGene`, `nUMI`, `orig.ident` (10 dose labels C…T320), `percent.mito`, `State` (6 values: C + S1–S5) |
 | Loader adapted for this layout | New config fields `metadata`, `metadata_cell_column`, `metadata_sample_column`. Cells are joined to metadata by ID and cells without metadata are dropped (the load fails if fewer than 50% match). The count CSV is read in 1,000-row chunks into a sparse matrix so it doesn't exhaust memory |
 | State task: `State` used as the state target, `"C"` ignored | Control cells have no resistance state. Leaving them out matches the paper's 5-state task, and including them would make the task partly trivial (C ≡ dose 0). Unlabelled cells are excluded from the state loss in all models |
+| `uv run pytest` after v3 | All tests pass on the workstation |
+| Committed `uv.lock` and pushed to **github.com/sachitsatyal/parpi-resistance** (private) | CI needs the lockfile; GitHub is the source for CI/CD and Hugging Face deployment |
+| Removed the `Co-Authored-By: Claude` / `Claude-Session` lines from all commit messages (`git filter-branch --msg-filter`), then force-pushed | User's choice: no AI co-author on the repository. GitHub's contributor list is cached and updates later |
+| Removed `.github/dependabot.yml` | On the first push it opened a burst of dependency-update PRs. Versions are already pinned by `uv.lock`, so automatic update PRs aren't needed during development. Revisit (grouped, monthly) before a public release |
+| First CI run on GitHub | lint, tests (Python 3.10 and 3.12, including PyTorch) **passed**; the Docker job **failed** |
+| Dockerfile fixes: uv image 0.5 -> 0.13; `--no-editable` install; venv kept at the same path (`/app/.venv`) in builder and runtime | uv 0.5 can't read a lockfile written by uv 0.13. An editable install points at `/app/src`, which isn't in the runtime image. Venv scripts hard-code their build path |
+| CI after the Docker fix | **All jobs green** (lint, tests 3.10/3.12, docker) |
+| First `prepare` on Kuramochi | Download OK. The count matrix has **18,209 cells** but the metadata has **8,240**, and only **7,322** match. The ID format is identical, so this is about cell sets, not naming. Stopped by the 50% match guard. Diagnosing with `scripts/check_ids.py` before choosing which cells to use |
+| Cell-ID diagnosis (`scripts/check_ids.py`) | Every dose except T40 has about 50% of its matrix cells in the metadata (an authors' filter, likely G1-only per the `_g1` file name). **T40 metadata uses a second library (`bc_40uM2nd_`, 918 cells) that isn't in the matrix**, while the matrix's T40 library (`bc_40uM_`, 2,077 cells) has no metadata. States are cleanly ordered: C → S1 (T1–T5) → S2–S4 (T2.5–T80) → S5 (T160–T320) |
+| **Decision: keep all matrix cells, take dose from the barcode prefix, apply uniform QC to every dose; published states used as labels where available** (`metadata_required: false`, `barcode_sample_regex`) | Metadata-only matching would drop T40 entirely, and T40 is the S3→S4 transition. Using curated cells for some doses but uncurated cells for T40 would confound dose with processing. Uniform QC on all ~18k cells avoids that and doubles the data. `orig.ident` is kept only to cross-check doses (the load fails if any disagree). Per-dose QC medians are written to `summary.json` to catch an outlier library. Alternative kept available: `metadata_required: true` (authors' curated cells, no T40) |
+| `load_config` reads YAML as UTF-8 explicitly | Windows defaults to cp1252, which can mis-read non-ASCII characters in configs |
+| `prepare` with all cells | 18,209 cells, **QC removed none**. Feature space: 7,350 genes, 1,266 gene sets. Barcode doses agree with metadata for all 7,322 matched cells |
+| QC diagnosis (`scripts/check_qc.py`) | The matrix is the authors' raw counts: our counts equal metadata `nUMI` and `nGene` exactly (ratio 1.0, r = 1.0). (An earlier worry about "17k UMIs per cell" was wrong: it came from the first 5 rows, not the median.) Cells without metadata have **lower depth in most doses** (control median 1,670 vs 5,946 UMIs; similar depth at 10, 320 µM). So the authors' filter is partly quality-based, not only cell-cycle |
+| **Decision: keep all cells, but plan a sensitivity analysis** on curated cells only (`metadata_required: true`, which drops T40) | Rank-based features are depth-invariant (tested) and the depth-only sanity model detects depth confounding. Uniform processing keeps T40. Comparing the two CV results tells us whether the uncurated cells change the conclusions |
+| First `train` (ensemble 5, network: 60 epochs, 4 heads, dim 64) | Ridge and HGB finished (HGB 835 s). HGB: cell MAE 0.187 vs 0.295 mean baseline, dose-level Spearman 0.77 (just under the 0.8 gate), state balanced accuracy 0.44 vs chance 0.43. **Network stage >45 min with no progress output → stopped** |
+| Lighter run: ensemble 3, network 25 epochs / patience 4 / 2 heads / dim 32 / batch 512; per-fold progress logging added | Make a CPU run finish in reasonable time. Silent long stages made it impossible to tell whether the run was progressing |
 
 ## 8. Open items
 
 - [x] Inspect the metadata and adapt the loader for one combined count file + metadata.
-- [ ] First real-data run (download, then prepare): check that the cell IDs match between counts and metadata.
+- [x] Cell IDs diagnosed and the cell-selection decision made.
+- [x] Rerun `prepare`; check per-dose QC (T40 looks like its neighbours: median 2,097 UMIs).
+- [ ] Train and cross-validate on all cells.
+- [ ] Sensitivity analysis: curated cells only.
 - [ ] Confirm the file layouts for GSE247690 (PDX) and GSE202435 (breast); find COV362's accession.
 - [ ] First real-data run, `uv run parpi reproduce -c configs/default.yaml`, then `parpi gate`.
-- [ ] Push to GitHub; set `HF_TOKEN`, `HF_MODEL_REPO`, `HF_SPACE_REPO`; tag `v0.1.0`.
+- [x] Push to GitHub.
+- [ ] Set `HF_TOKEN`, `HF_MODEL_REPO`, `HF_SPACE_REPO`; tag `v0.1.0`.
