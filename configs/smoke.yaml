@@ -1,0 +1,25 @@
+# Fast end-to-end run on synthetic data with planted ground truth (CI + tests).
+project: parpi-smoke
+data_dir: .smoke/data
+output_dir: .smoke/outputs
+datasets:
+  - name: synthetic_train
+    role: train
+    source: synthetic
+    synthetic: {seed: 1, cells_per_condition: 60}
+    condition_regex: "(.+)"
+    dose_map: {C: 0, T1: 1, T2.5: 2.5, T5: 5, T10: 10, T20: 20, T40: 40, T80: 80, T160: 160, T320: 320}
+  - name: synthetic_external
+    role: external
+    cancer_type: other
+    source: synthetic
+    synthetic: {seed: 2, cells_per_condition: 80}
+    resistant_map: {parental: 0, resistant: 1}
+qc: {min_genes: 50, min_counts: 300, max_counts: 100000, max_pct_mito: 20.0, min_cells_per_gene: 5}
+features: {gene_sets: synthetic, min_set_size: 10, max_set_size: 300, min_gene_coverage: 0.6}
+split: {strategy: leave_dose_out, n_folds: 5}
+train:
+  models: [ridge, hgb, hierarchical]
+  ensemble_size: 2
+  seed: 7
+  hierarchical: {epochs: 15, batch_size: 128, patience: 4, dim: 32, heads: 2}

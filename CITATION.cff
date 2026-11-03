@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: "parpi-resistance: reproducible single-cell models of PARP-inhibitor resistance"
+message: "If you use this software, please cite it and the original data."
+type: software
+license: MIT
+version: 0.1.0
+authors:
+  - given-names: Supriya
+  - family-names: Satyal
+    given-names: Sachit
+references:
+  - type: article
+    title: "Cellular adaptation to cancer therapy along a resistance continuum"
+    authors:
+      - family-names: França
+        given-names: Gustavo S.
+    journal: Nature
+    volume: 631
+    start: 876
+    end: 883
+    year: 2024
+    doi: 10.1038/s41586-024-07690-9

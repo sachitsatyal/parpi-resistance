@@ -1,0 +1,18 @@
+# Optional: cache pipeline stages with DVC (`dvc repro`). Stages mirror the CLI.
+stages:
+  prepare:
+    cmd: parpi prepare -c configs/default.yaml
+    deps: [configs, src/parpi/data, src/parpi/preprocess.py, src/parpi/genesets.py]
+    outs: [data/processed]
+  train:
+    cmd: parpi train -c configs/default.yaml
+    deps: [data/processed, src/parpi/models, src/parpi/pipeline.py, configs/default.yaml]
+    outs: [outputs/models]
+    metrics: [outputs/metrics/cv.json: {cache: false}]
+  evaluate:
+    cmd: parpi evaluate -c configs/default.yaml
+    deps: [outputs/models, data/processed]
+    metrics: [outputs/metrics/external.json: {cache: false}]
+  report:
+    cmd: parpi report -c configs/default.yaml
+    deps: [outputs/metrics]

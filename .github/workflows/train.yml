@@ -1,0 +1,41 @@
+name: Train (real data)
+
+# Manually triggered full run on the public GEO data. Produces model bundles,
+# metrics and the model card as a downloadable artifact. Publishes nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: Config file
+        default: configs/default.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true, python-version: "3.12" }
+      - run: uv sync --locked --all-extras
+      - name: Cache raw downloads (checksummed in MANIFEST.json)
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw
+            data/genesets
+          key: geo-${{ hashFiles('configs/datasets/**') }}
+      - run: uv run parpi reproduce -c ${{ inputs.config }}
+      - run: uv run parpi gate -c ${{ inputs.config }}
+        continue-on-error: true   # report, don't block: the release workflow enforces it
+      - uses: actions/upload-artifact@v4
+        with:
+          name: run-${{ github.run_id }}
+          path: |
+            outputs
+            data/processed/summary.json
+            data/raw/*/MANIFEST.json
+            data/genesets/genesets.lock.json
