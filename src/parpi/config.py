@@ -44,6 +44,14 @@ class DatasetConfig(_Strict):
     resistant_map: dict[str, int] = Field(default_factory=dict)
     # Optional obs column holding published cell-state labels (e.g. França S1-S5).
     state_column: str | None = None
+    # Optional per-cell metadata table (glob, also downloaded) for datasets that ship
+    # one combined count matrix: rows are matched to cells by `metadata_cell_column`,
+    # and `metadata_sample_column` supplies each cell's sample/condition label.
+    metadata: str | None = None
+    metadata_cell_column: str = "cell"
+    metadata_sample_column: str | None = None
+    # Values of `state_column` to ignore as states (e.g. the control label "C").
+    state_ignore: list[str] = Field(default_factory=list)
     # Synthetic generator settings (source=synthetic only).
     synthetic: dict[str, float | int] = Field(default_factory=dict)
 

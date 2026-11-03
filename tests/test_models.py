@@ -97,3 +97,14 @@ def test_ece_and_external_metrics():
     assert expected_calibration_error(proba, np.array([0, 1])) == pytest.approx(0.15)
     m = external_metrics(np.array([0.1, 0.2, 0.8, 0.9]), np.array([0, 0, 1, 1]))
     assert m["auroc"] == 1.0
+
+
+def test_unlabelled_states_are_ignored(xy):
+    x, y, _ = xy
+    state = y.state.copy()
+    state[: len(state) // 3] = ""  # e.g. control cells without a published state
+    m = RidgeModel(BaselineConfig()).fit(x, Targets(y.score, state), seed=0)
+    p = m.predict(x)
+    assert "" not in set(p.state_classes)
+    cm = classification_metrics(p.state_proba, p.state_classes, state)
+    assert 0 <= cm["state_balanced_accuracy"] <= 1

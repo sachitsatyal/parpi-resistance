@@ -94,7 +94,10 @@ def _available_models(cfg: Config) -> list[str]:
 
 def _targets(obs: pd.DataFrame) -> Targets:
     dose = obs["dose_um"].to_numpy(float)
-    state = obs["state"].astype(str).to_numpy() if "state" in obs else None
+    state = None
+    if "state" in obs and obs["state"].notna().any():
+        # Missing states (e.g. control cells) become "": excluded from the state loss.
+        state = np.where(obs["state"].isna(), "", obs["state"].astype(str)).astype(str)
     return Targets(resistance_target(dose, dose.max()), state)
 
 

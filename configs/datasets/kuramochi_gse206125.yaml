@@ -1,14 +1,20 @@
 # França et al., Nature 2024 — Kuramochi (BRCA2-deficient HGSOC) olaparib dose escalation.
-# Before the first run: `parpi inspect GSE206125` and narrow `files` to the count files.
+# GEO layout (checked 2026-11-02 with `parpi inspect GSE206125`): one combined count
+# matrix for all doses + a per-cell metadata table (cell, nGene, nUMI, orig.ident,
+# percent.mito, State). orig.ident = dose label (C, T1 ... T320); State = C or S1-S5.
 datasets:
   - name: kuramochi
     role: train
     cancer_type: ovarian
     source: geo
     accession: GSE206125
-    files: ["*"]
-    # Pull the condition token (C, T1, T2.5 ... T320) out of each sample/file name.
-    condition_regex: '(?:^|[_\-.])(C|T\d+(?:\.\d+)?)(?:$|[_\-.])'
+    files: ["GSE206125_kuramochi_all_C_to_T320.csv.gz"]
+    metadata: "GSE206125_kuramochi_C_to_T320_metadata_g1.tsv.gz"
+    metadata_cell_column: cell
+    metadata_sample_column: orig.ident
+    condition_regex: "^(.+)$"
     dose_map: {C: 0, T1: 1, T2.5: 2.5, T5: 5, T10: 10, T20: 20, T40: 40, T80: 80, T160: 160, T320: 320}
-    # Set to the obs column holding the published S1-S5 states if the release includes them.
-    state_column: null
+    # Published resistance states. Control cells carry "C" (no state) and are
+    # excluded from the state task, matching the paper's 5-state classification.
+    state_column: State
+    state_ignore: ["C"]
