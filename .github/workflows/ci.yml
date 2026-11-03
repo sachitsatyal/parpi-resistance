@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true, python-version: "3.12" }
       - run: uv lock --check            # uv.lock must match pyproject.toml
       - run: uv sync --locked --extra dev
@@ -33,7 +33,7 @@ jobs:
         python: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true, python-version: "${{ matrix.python }}" }
       - run: uv sync --locked --all-extras
       - name: Unit + integration tests (incl. PyTorch model)

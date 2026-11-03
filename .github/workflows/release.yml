@@ -23,7 +23,7 @@ jobs:
       model: ${{ steps.sel.outputs.model }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true, python-version: "3.12" }
       - run: uv sync --locked --all-extras
       - uses: actions/cache@v4
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { python-version: "3.12" }
       - run: uv sync --locked --extra app
       - uses: actions/download-artifact@v4
@@ -101,7 +101,7 @@ jobs:
     environment: huggingface
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { python-version: "3.12" }
       - run: uv pip install --system "huggingface_hub>=0.23"
       - env: { HF_TOKEN: "${{ secrets.HF_TOKEN }}" }

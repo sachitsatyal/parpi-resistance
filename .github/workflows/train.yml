@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with: { enable-cache: true, python-version: "3.12" }
       - run: uv sync --locked --all-extras
       - name: Cache raw downloads (checksummed in MANIFEST.json)
