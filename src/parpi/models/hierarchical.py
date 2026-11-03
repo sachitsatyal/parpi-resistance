@@ -96,15 +96,37 @@ class HiPathNet(nn.Module):
         self.score_head = nn.Linear(cfg.dim, 1)
         self.state_head = nn.Linear(cfg.dim, n_states) if n_states > 1 else None
         self.recon_head = nn.Linear(cfg.dim, k)
+        # Direct (ridge-like) path from standardised pathway activity to the score,
+        # so the network is never weaker than the linear baseline; starts at zero.
+        self.skip = nn.Linear(k, 1)
+        nn.init.zeros_(self.skip.weight)
         self.scale = 1.0 / math.sqrt(cfg.dim)
+        # Per-pathway centring/scaling of activations, set from training data.
+        self.register_buffer("act_mean", torch.zeros(k))
+        self.register_buffer("act_std", torch.ones(k))
+
+    def set_scaling(self, pathways: np.ndarray, score_mean: float) -> None:
+        """Standardise inputs and start the score at the training mean."""
+        self.act_mean.copy_(torch.as_tensor(pathways.mean(0), dtype=torch.float32))
+        self.act_std.copy_(torch.as_tensor(pathways.std(0) + 1e-6, dtype=torch.float32))
+        p = float(np.clip(score_mean, 1e-3, 1 - 1e-3))
+        with torch.no_grad():
+            self.score_head.bias.fill_(math.log(p / (1 - p)))
+
+    def standardise(self, pathways: torch.Tensor) -> torch.Tensor:
+        return (pathways - self.act_mean) / self.act_std
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         act = self.gene_pathway(x)  # (B, K, H)
-        tokens = self.norm(self.token_proj(act * 4.0) + self.pathway_emb)  # (B, K, D)
+        # Raw activations differ between cells by only ~0.01-0.1, so standardise
+        # each pathway before projecting, or the signal is swamped by biases.
+        act = (act - self.act_mean[:, None]) / self.act_std[:, None]
+        tokens = self.norm(self.token_proj(act) + self.pathway_emb)  # (B, K, D)
         attn = torch.softmax((tokens @ self.query) * self.scale, dim=1)  # (B, K)
         z = self.trunk(self.drop((attn.unsqueeze(-1) * tokens).sum(1)))  # (B, D)
+        logit = self.score_head(z) + self.skip(self.drop(act.mean(-1)))
         out = {
-            "score": torch.sigmoid(self.score_head(z)).squeeze(-1),
+            "score": torch.sigmoid(logit).squeeze(-1),
             "attention": attn,
             "recon": self.recon_head(z),
         }
@@ -139,7 +161,9 @@ class HierarchicalModel:
         if y.state is not None and len(np.unique(y.state)) > 1:
             self.classes_, state_idx = np.unique(y.state, return_inverse=True)
         n_states = 0 if self.classes_ is None else len(self.classes_)
-        self.net = HiPathNet(self.membership, cfg, n_states).to(device)
+        self.net = HiPathNet(self.membership, cfg, n_states)
+        self.net.set_scaling(x.pathways, float(y.score.mean()))
+        self.net = self.net.to(device)
 
         rng = np.random.default_rng(seed)
         perm = rng.permutation(len(x))
@@ -168,7 +192,7 @@ class HierarchicalModel:
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.net.parameters(), 1.0)
                 opt.step()
-                total += float(loss) * len(b)
+                total += float(loss.detach()) * len(b)
             self.net.eval()
             with torch.no_grad():
                 vb = torch.as_tensor(val, device=device)
@@ -194,7 +218,8 @@ class HierarchicalModel:
         assert self.net is not None
         out = self.net(x)
         loss = F.mse_loss(out["score"], y)
-        loss = loss + self.cfg.recon_weight * F.mse_loss(out["recon"], p * 10.0)
+        target = self.net.standardise(p)
+        loss = loss + self.cfg.recon_weight * F.mse_loss(out["recon"], target)
         if s is not None and "state_logits" in out:
             loss = loss + self.cfg.state_weight * F.cross_entropy(out["state_logits"], s)
         return loss
