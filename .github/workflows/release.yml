@@ -60,7 +60,7 @@ jobs:
           uv run parpi push -m outputs/models/${{ needs.train-and-gate.outputs.model }}
           --repo "${{ vars.HF_MODEL_REPO }}" --revision-tag "${{ github.ref_name }}"
       - name: GitHub release with metrics
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             outputs/metrics/cv.json
