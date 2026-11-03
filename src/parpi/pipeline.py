@@ -42,7 +42,7 @@ def paths(cfg: Config) -> dict[str, Path]:
     data, out = Path(cfg.data_dir), Path(cfg.output_dir)
     return {
         "data": data,
-        "processed": data / "processed",
+        "processed": Path(cfg.processed_dir) if cfg.processed_dir else data / "processed",
         "genesets": data / "genesets",
         "out": out,
         "models": out / "models",
@@ -123,7 +123,15 @@ def prepare(cfg: Config) -> None:
     _, ranks, cov = fs.transform(train, apply_qc=False)
     _save_processed(p["processed"] / "train", Inputs(ranks, fs.pathway_scores(ranks)), train.obs)
     qc_cols = [c for c in ("total_counts", "n_genes", "pct_mito") if c in train.obs]
-    by_cond = train.obs.groupby("condition")
+    # With several training datasets, condition names repeat ("C", "T5" ...):
+    # label each group "dataset/condition" when more than one dataset is present.
+    multi = train.obs["dataset"].nunique() > 1
+    group = (
+        train.obs["dataset"].astype(str) + "/" + train.obs["condition"].astype(str)
+        if multi
+        else train.obs["condition"].astype(str)
+    )
+    by_cond = train.obs.groupby(group)
     qc_by_condition = by_cond[qc_cols].median().round(2)
     qc_by_condition["cells"] = by_cond.size()
     if "state" in train.obs:
@@ -132,7 +140,7 @@ def prepare(cfg: Config) -> None:
         "train": {
             "cells": train.n_cells,
             "gene_coverage": cov,
-            "conditions": train.obs["condition"].value_counts().to_dict(),
+            "conditions": group.value_counts().to_dict(),
             # Per-dose QC medians: a library that differs from its neighbours
             # (e.g. a re-sequenced dose) shows up here before it biases a model.
             "qc_by_condition": qc_by_condition.to_dict(orient="index"),
@@ -151,7 +159,9 @@ def prepare(cfg: Config) -> None:
 def cross_validate(cfg: Config, x: Inputs, obs: pd.DataFrame, fs: FeatureSpace) -> dict[str, Any]:
     y = _targets(obs)
     dose = obs["dose_um"].to_numpy(float)
-    folds = make_folds(dose, cfg.split, cfg.train.seed)
+    by_dataset = cfg.split.strategy == "leave_dataset_out"
+    groups = obs["dataset"].astype(str).to_numpy() if by_dataset else dose
+    folds = make_folds(groups, cfg.split, cfg.train.seed)
     results: dict[str, Any] = {}
     oof_frames = []
     mean_base = np.zeros(len(x))
@@ -168,12 +178,17 @@ def cross_validate(cfg: Config, x: Inputs, obs: pd.DataFrame, fs: FeatureSpace) 
             ens.fit(x.take(train_idx), y.take(train_idx), seed=cfg.train.seed + 100 * k)
             pred = ens.predict(x.take(test))
             oof[test], oof_std[test] = pred.score, pred.score_std
+            held = (
+                sorted(np.unique(groups[test]).tolist())
+                if by_dataset
+                else sorted(np.unique(dose[test]).tolist())
+            )
             log.info(
-                "CV %s: fold %d/%d done (held-out doses %s, %.0fs elapsed)",
+                "CV %s: fold %d/%d done (held out %s, %.0fs elapsed)",
                 name,
                 k + 1,
                 len(folds),
-                sorted(np.unique(dose[test]).tolist()),
+                held,
                 time.time() - t0,
             )
             if (
@@ -185,8 +200,15 @@ def cross_validate(cfg: Config, x: Inputs, obs: pd.DataFrame, fs: FeatureSpace) 
         metrics = regression_metrics(oof, y.score, dose, mean_base)
         if proba_parts:
             # Score each fold separately: class sets can differ between folds.
-            per_fold = [classification_metrics(pp, cc, tt) for pp, cc, tt in proba_parts]
-            metrics.update({k: float(np.nanmean([m[k] for m in per_fold])) for k in per_fold[0]})
+            # Folds without labelled cells (e.g. a held-out line with no states) are skipped.
+            scored = [classification_metrics(pp, cc, tt) for pp, cc, tt in proba_parts]
+            per_fold = [m for m in scored if m]
+            if per_fold:
+                metrics.update(
+                    {k: float(np.nanmean([m[k] for m in per_fold])) for k in per_fold[0]}
+                )
+        if by_dataset:
+            metrics.update(_per_dataset_metrics(oof, y.score, dose, groups, mean_base))
         metrics["seconds"] = round(time.time() - t0, 1)
         results[name] = metrics
         oof_frames.append(
@@ -218,13 +240,47 @@ def cross_validate(cfg: Config, x: Inputs, obs: pd.DataFrame, fs: FeatureSpace) 
     return results
 
 
+def _per_dataset_metrics(
+    pred: np.ndarray, target: np.ndarray, dose: np.ndarray, groups: np.ndarray, base: np.ndarray
+) -> dict[str, Any]:
+    """Metrics for each held-out dataset, plus their mean (the leave-dataset-out score)."""
+    per: dict[str, dict[str, float]] = {}
+    for g in sorted(set(groups.tolist())):
+        m = groups == g
+        r = regression_metrics(pred[m], target[m], dose[m], base[m])
+        top = dose[m].max()
+        sel = m & ((dose == 0) | (dose == top))
+        r.update(
+            {
+                f"auroc_control_vs_{top:g}uM": external_metrics(
+                    pred[sel], (dose[sel] == top).astype(float)
+                ).get("auroc", float("nan"))
+            }
+        )
+        per[g] = r
+    return {
+        "per_dataset": per,
+        "spearman_dose_means_by_dataset": float(
+            np.nanmean([r["spearman_dose_means"] for r in per.values()])
+        ),
+        "mae_cell_by_dataset": float(np.nanmean([r["mae_cell"] for r in per.values()])),
+    }
+
+
 def select_model(cv: dict[str, Any], candidates: list[str]) -> str:
-    """Highest dose-level Spearman; ties broken by lower cell MAE, then simpler model."""
+    """Highest dose-level Spearman; ties broken by lower cell MAE, then simpler model.
+
+    Under leave-dataset-out CV the per-held-out-dataset averages are used.
+    """
     order = {"ridge": 0, "hgb": 1, "hierarchical": 2}
-    return sorted(
-        candidates,
-        key=lambda m: (-round(cv[m][PRIMARY_METRIC], 3), round(cv[m]["mae_cell"], 3), order[m]),
-    )[0]
+
+    def key(m: str) -> tuple[float, float, int]:
+        c = cv[m]
+        sp = c.get("spearman_dose_means_by_dataset", c[PRIMARY_METRIC])
+        mae = c.get("mae_cell_by_dataset", c["mae_cell"])
+        return (-round(sp, 3), round(mae, 3), order[m])
+
+    return sorted(candidates, key=key)[0]
 
 
 def train(cfg: Config) -> None:
@@ -296,7 +352,7 @@ def evaluate_external(cfg: Config) -> dict[str, Any]:
     results: dict[str, Any] = {}
     for d in cfg.external_datasets:
         x, obs = load_processed(p["processed"] / d.name)
-        results[d.name] = {"cancer_type": d.cancer_type}
+        results[d.name] = {"cancer_type": d.cancer_type, "gated": d.gate}
         for name in _available_models(cfg):
             bundle = ModelBundle.load(p["models"] / name)
             pred = bundle.model.predict(x)
@@ -343,7 +399,7 @@ def quality_gate(
     train_types = {d.cancer_type for d in cfg.train_datasets}
     for d in cfg.external_datasets:
         res = ext.get(d.name, {}).get(best, {})
-        if d.cancer_type in train_types:
+        if d.gate and d.cancer_type in train_types:
             auc = res.get("auroc")
             if auc is None or not auc >= min_external_auroc:
                 failures.append(f"{best} on {d.name}: auroc={auc} < {min_external_auroc}")

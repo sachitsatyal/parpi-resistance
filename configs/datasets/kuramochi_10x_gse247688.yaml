@@ -1,0 +1,17 @@
+# Kuramochi again, on the 10x platform (GSE247688): same cell line as training,
+# different technology. Tests how much of the PDX failure is platform shift.
+# orig.ident: C.R1/R2, T10.A.R1/R2, T320.A.R1/R2, T10.P.R1/R2, T320.P.R1/R2
+# ("A"/"P" not documented in the file; "P" is probably drug withdrawn, so report-only).
+# 13,800 matrix cells, 7,762 curated. Cell lines have no stroma, so all cells are used.
+datasets:
+  - name: kuramochi_10x
+    role: external
+    cancer_type: ovarian
+    source: geo
+    accession: GSE247688
+    files: ["GSE247688_kuramochi_counts_all_C_P10_P320_T10_T320.csv.gz"]
+    barcode_sample_regex: "_([^_]+)$"
+    condition_regex: "^(.+)$"
+    # AUROC: control vs top dose on drug. T10 and the ".P" samples are reported only.
+    resistant_map: {C.R1: 0, C.R2: 0, T320.A.R1: 1, T320.A.R2: 1}
+    gate: false

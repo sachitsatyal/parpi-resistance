@@ -90,6 +90,8 @@ class FeatureSpace:
         detected = np.asarray((train.X > 0).sum(axis=0)).ravel() >= qc.min_cells_per_gene
         expressed = train.genes[detected]
         gs = library.filter(expressed, feats.min_set_size, feats.max_set_size)
+        if feats.exclude_gene_sets:
+            gs = gs.exclude(feats.exclude_gene_sets)
         log.info("feature space: %d genes, %d gene sets", len(gs.genes()), len(gs))
         return cls(genes=gs.genes(), gene_sets=gs, qc=qc, min_gene_coverage=feats.min_gene_coverage)
 

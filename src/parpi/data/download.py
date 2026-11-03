@@ -30,8 +30,29 @@ def geo_suppl_url(accession: str) -> str:
     return f"{GEO_FTP}/{stub}/{accession}/suppl/"
 
 
+def _session() -> requests.Session:
+    """HTTP session that retries timeouts and transient server errors with backoff.
+
+    NCBI's servers are occasionally slow; 5 attempts with 2-32 s waits ride that out.
+    """
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        backoff_factor=2,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET", "HEAD"}),
+    )
+    s = requests.Session()
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    return s
+
+
 def list_geo_files(accession: str, timeout: int = 60) -> list[str]:
-    resp = requests.get(geo_suppl_url(accession), timeout=timeout)
+    resp = _session().get(geo_suppl_url(accession), timeout=timeout)
     resp.raise_for_status()
     names = re.findall(r'href="([^"?/][^"]*)"', resp.text)
     return sorted({n for n in names if not n.startswith(("http", "/"))})
@@ -47,7 +68,7 @@ def sha256(path: Path, chunk: int = 1 << 20) -> str:
 
 def _download(url: str, dest: Path, timeout: int = 600) -> None:
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with requests.get(url, stream=True, timeout=timeout) as r:
+    with _session().get(url, stream=True, timeout=timeout) as r:
         r.raise_for_status()
         with tmp.open("wb") as f:
             for block in r.iter_content(1 << 20):
@@ -80,8 +101,18 @@ def fetch_geo(accession: str, patterns: list[str], dest: Path) -> list[Path]:
     manifest: dict[str, str] = (
         json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     )
-    remote = list_geo_files(accession)
-    wanted = [n for n in remote if any(fnmatch.fnmatch(n, p) for p in patterns)]
+    # Offline path: if every pattern is already satisfied by checksummed local files,
+    # skip the network entirely (reruns work without GEO, and checksums still apply).
+    cached = {
+        p: [n for n in manifest if fnmatch.fnmatch(n, p) and (dest / n).exists()] for p in patterns
+    }
+    if patterns and all(cached.values()):
+        remote: list[str] = []
+        wanted = sorted({n for names in cached.values() for n in names})
+        log.info("%s: using %d cached file(s), no download needed", accession, len(wanted))
+    else:
+        remote = list_geo_files(accession)
+        wanted = [n for n in remote if any(fnmatch.fnmatch(n, p) for p in patterns)]
     if not wanted:
         raise FileNotFoundError(
             f"no files in {accession} match {patterns}. Available: {remote}. "

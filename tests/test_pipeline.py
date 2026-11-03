@@ -84,3 +84,61 @@ def test_quality_gate(smoke_config):
     evaluate_external(smoke_config)
     assert quality_gate(smoke_config) == []
     assert quality_gate(smoke_config, min_spearman=1.01)  # impossible threshold must fail
+
+
+def test_leave_dataset_out_pipeline(tmp_path):
+    """Two synthetic 'cell lines' (different baselines); hold each one out in turn."""
+    import yaml
+
+    from parpi.config import load_config
+    from tests.conftest import ROOT
+
+    raw = yaml.safe_load((ROOT / "configs" / "smoke.yaml").read_text())
+    second = dict(
+        raw["datasets"][0],
+        name="synthetic_train_2",
+        synthetic={"seed": 5, "cells_per_condition": 40},
+    )
+    raw["datasets"].insert(1, second)
+    raw.update(data_dir=str(tmp_path / "d"), output_dir=str(tmp_path / "o"))
+    raw["split"] = {"strategy": "leave_dataset_out"}
+    raw["train"]["models"] = ["ridge"]
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    cfg = load_config(path)
+    # Give only the first synthetic line published-style state labels, like Kuramochi.
+    from parpi.data import datasets as ds_mod
+
+    orig = ds_mod.annotate
+
+    def annotate_with_states(cd, dcfg):
+        out = orig(cd, dcfg)
+        if dcfg.name == "synthetic_train":
+            out.obs["state"] = np.where(out.obs["dose_um"] >= 80, "late", "early")
+        return out
+
+    import pytest
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(ds_mod, "annotate", annotate_with_states)
+    try:
+        prepare(cfg)
+    finally:
+        mp.undo()
+    train(cfg)
+    cv = json.loads((paths(cfg)["metrics"] / "cv.json").read_text())
+    assert "per_dataset" in cv["models"]["ridge"]
+    path = tmp_path / "c2.yaml"
+    raw.update(data_dir=str(tmp_path / "d2"), output_dir=str(tmp_path / "o2"))
+    path.write_text(yaml.safe_dump(raw))
+    cfg = load_config(path)
+    prepare(cfg)
+    train(cfg)
+    cv = json.loads((paths(cfg)["metrics"] / "cv.json").read_text())
+    ridge = cv["models"]["ridge"]
+    assert set(ridge["per_dataset"]) == {"synthetic_train", "synthetic_train_2"}
+    assert ridge["spearman_dose_means_by_dataset"] > 0.8
+    for m in ridge["per_dataset"].values():
+        assert m["auroc_control_vs_320uM"] > 0.9
+    summary = json.loads((paths(cfg)["processed"] / "summary.json").read_text())
+    assert "synthetic_train_2/T320" in summary["train"]["qc_by_condition"]

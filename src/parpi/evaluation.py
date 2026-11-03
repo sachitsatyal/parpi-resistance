@@ -24,6 +24,11 @@ def make_folds(groups: np.ndarray, cfg: SplitConfig, seed: int) -> list[np.ndarr
     dose and dealt round-robin into folds, so every fold mixes low and high doses
     and covers both interpolation and (at the ends) extrapolation.
     """
+    if cfg.strategy == "leave_dataset_out":
+        levels = sorted(set(groups.tolist()))
+        if len(levels) < 2:
+            raise ValueError("leave_dataset_out needs at least two training datasets")
+        return [np.where(groups == lvl)[0] for lvl in levels]
     if cfg.strategy == "random_cells":
         rng = np.random.default_rng(seed)
         perm = rng.permutation(len(groups))
@@ -82,7 +87,10 @@ def expected_calibration_error(proba: np.ndarray, y_idx: np.ndarray, bins: int =
 def classification_metrics(
     proba: np.ndarray, classes: np.ndarray, truth: np.ndarray
 ) -> dict[str, float]:
+    """State metrics on the labelled cells; {} when the fold has no labelled cells."""
     known = np.isin(truth, classes) & (truth != "")
+    if not known.any():
+        return {}
     proba, truth = proba[known], truth[known]
     pred = classes[proba.argmax(1)]
     y_idx = np.searchsorted(classes, truth)

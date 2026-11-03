@@ -1,0 +1,22 @@
+# Kuramochi training (identical to configs/kuramochi.yaml) + external ovarian tests.
+# Models trained with kuramochi.yaml can be evaluated with this config directly:
+# the training data and `train:` settings are the same.
+project: parpi-resistance
+data_dir: data
+output_dir: outputs
+includes:
+  - datasets/kuramochi_gse206125.yaml
+  - datasets/external_ovarian.yaml
+features:
+  gene_sets: "enrichr:MSigDB_Hallmark_2020+enrichr:Reactome_2022"
+  min_set_size: 10
+  max_set_size: 300
+  min_gene_coverage: 0.6
+split:
+  strategy: leave_dose_out
+  n_folds: 5
+train:
+  models: [ridge, hgb, hierarchical]
+  ensemble_size: 3
+  seed: 42
+  hierarchical: {epochs: 25, patience: 4, heads: 2, dim: 32, batch_size: 512}

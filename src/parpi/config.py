@@ -42,6 +42,8 @@ class DatasetConfig(_Strict):
     dose_map: dict[str, float] = Field(default_factory=dict)
     # For external sets: map condition label -> binary resistant (1) / parental (0).
     resistant_map: dict[str, int] = Field(default_factory=dict)
+    # External sets only: False = scored and reported, but never blocks a release.
+    gate: bool = True
     # Optional obs column holding published cell-state labels (e.g. França S1-S5).
     state_column: str | None = None
     # Optional per-cell metadata table (glob, also downloaded) for datasets that ship
@@ -77,12 +79,15 @@ class FeatureConfig(_Strict):
     max_set_size: int = 500
     # Minimum fraction of the model's gene universe present in a query dataset.
     min_gene_coverage: float = 0.6
+    # Case-insensitive regexes; gene sets whose name matches any are dropped.
+    exclude_gene_sets: list[str] = Field(default_factory=list)
 
 
 class SplitConfig(_Strict):
     # Hold out whole dose groups: tests interpolation to unseen doses, not
     # memorisation of cells from doses already seen.
-    strategy: Literal["leave_dose_out", "random_cells"] = "leave_dose_out"
+    # leave_dataset_out: hold out a whole training dataset (e.g. one cell line) per fold.
+    strategy: Literal["leave_dose_out", "leave_dataset_out", "random_cells"] = "leave_dose_out"
     n_folds: int = 5
 
 
@@ -117,6 +122,9 @@ class Config(_Strict):
     project: str = "parpi-resistance"
     data_dir: str = "data"
     output_dir: str = "outputs"
+    # Where featurised data is written; default <data_dir>/processed. Set it when
+    # several configs with different feature spaces share one data_dir.
+    processed_dir: str | None = None
     datasets: list[DatasetConfig]
     qc: QCConfig = QCConfig()
     features: FeatureConfig = FeatureConfig()

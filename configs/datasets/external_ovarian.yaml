@@ -1,22 +1,59 @@
 # Independent ovarian test sets from the same study (SuperSeries GSE247691).
 # Never used for training or model selection.
+#
+# GSE247690 layout (checked 2026-11-03): two experiments, each with one combined
+# count matrix + a curated per-cell metadata table. Cell IDs are BARCODE_SAMPLE
+# (e.g. AAACCTGAGCTGCCCA_V1); metadata column `orig.ident` holds the sample.
+#   resistance:  V1, V2 (vehicle) | R1.1, R1.2, R3.1, R3.2 (relapsed on olaparib)
+#                | R3.V (R3 line on vehicle: ambiguous, reported only)
+#                26,004 cells in counts, 10,918 curated (10,917 found in counts)
+#   persistence: V1, V2 (vehicle) | D1.1 ... D4.2 (short-term persisters)
+#                8,756 cells in counts, 4,843 curated
+#
+# Primary test = the authors' curated cells: PDX tumors contain mouse stromal
+# cells, and the authors' independent filter is the only way to drop them here.
 datasets:
-  - name: pdx_ovarian
+  - name: pdx_resistance
     role: external
     cancer_type: ovarian
     source: geo
     accession: GSE247690
-    files: ["*counts*"]
-    condition_regex: '(vehicle|persister|resistant)'
-    # Persisters are short-term drug-tolerant cells, not resistant: excluded from AUROC.
-    resistant_map: {vehicle: 0, resistant: 1}
-  # COV362 (BRCA1-mutant HGSOC) olaparib-adapted line. Find its SubSeries with
-  # `parpi inspect` on the GSE2476xx accessions listed under GSE247691, then enable:
-  # - name: cov362
-  #   role: external
-  #   cancer_type: ovarian
-  #   source: geo
-  #   accession: GSE2476XX
-  #   files: ["*cov362*"]
-  #   condition_regex: '(C|T\d+)'
-  #   resistant_map: {C: 0, T320: 1}
+    files: ["GSE247690_pdx_resistance_counts_all.csv.gz"]
+    metadata: "GSE247690_pdx_resistance_metadata_g1.tsv.gz"
+    metadata_cell_column: cell
+    metadata_required: true
+    metadata_sample_column: orig.ident
+    condition_regex: "^(.+)$"
+    # AUROC: vehicle vs relapsed-on-drug. R3.V is scored but left out of the AUROC.
+    resistant_map: {V1: 0, V2: 0, R1.1: 1, R1.2: 1, R3.1: 1, R3.2: 1}
+    gate: true
+
+  # Same experiment, every cell in the matrix (includes cells the authors removed,
+  # possibly mouse stroma). Shows how robust the score is to curation.
+  - name: pdx_resistance_allcells
+    role: external
+    cancer_type: ovarian
+    source: geo
+    accession: GSE247690
+    files: ["GSE247690_pdx_resistance_counts_all.csv.gz"]
+    barcode_sample_regex: "_([^_]+)$"
+    condition_regex: "^(.+)$"
+    resistant_map: {V1: 0, V2: 0, R1.1: 1, R1.2: 1, R3.1: 1, R3.2: 1}
+    gate: false
+
+  # Drug-tolerant persisters are not resistant: report mean scores per sample only.
+  - name: pdx_persistence
+    role: external
+    cancer_type: ovarian
+    source: geo
+    accession: GSE247690
+    files: ["GSE247690_pdx_persistence_counts_all.csv.gz"]
+    metadata: "GSE247690_pdx_persistence_metadata_g1.tsv.gz"
+    metadata_cell_column: cell
+    metadata_required: true
+    metadata_sample_column: orig.ident
+    condition_regex: "^(.+)$"
+    gate: false
+
+  # COV362 (BRCA1-mutant HGSOC) olaparib-adapted line: accession still to confirm
+  # among the GSE2476xx SubSeries of GSE247691.

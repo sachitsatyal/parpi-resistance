@@ -65,3 +65,17 @@ def test_feature_space_roundtrip(tmp_path, synthetic):
     np.testing.assert_array_equal(fs.genes, fs2.genes)
     assert fs.gene_sets.names == fs2.gene_sets.names
     assert (fs.membership != fs2.membership).nnz == 0
+
+
+def test_exclude_gene_sets_by_name():
+    gs = parse_gmt(
+        "Peptide Chain Elongation\t\tA\tB\n"
+        "Post-translational Protein Modification\t\tA\tC\n"
+        "Eukaryotic Translation Initiation\t\tB\tC\n"
+        "DNA Repair\t\tA\tB\tC\n",
+        "x",
+    )
+    kept = gs.exclude(["peptide chain elongation", r"\btranslation\b"])
+    assert kept.names == ("Post-translational Protein Modification", "DNA Repair")
+    with pytest.raises(ValueError, match="every gene set"):
+        gs.exclude([".*"])

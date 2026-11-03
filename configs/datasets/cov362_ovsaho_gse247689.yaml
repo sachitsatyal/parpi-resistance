@@ -1,0 +1,35 @@
+# França et al. 2024, two more ovarian lines with olaparib dose escalation (GSE247689).
+# Layout (checked 2026-11-03): one combined count matrix + curated metadata per line;
+# cell IDs are BARCODE_DOSE (e.g. AAACCCATCAAGATAG_T20); orig.ident = C, T5 ... T40.
+#   COV362 (BRCA1-mutant HGSOC): 5,535 matrix cells, 2,325 curated
+#   OVSAHO (HGSOC):              8,018 matrix cells, 3,638 curated
+# Same choices as Kuramochi: every cell, dose from the barcode, uniform QC, metadata
+# dose label only used as a cross-check. These lines have no published state labels.
+datasets:
+  - name: cov362
+    role: train
+    cancer_type: ovarian
+    source: geo
+    accession: GSE247689
+    files: ["GSE247689_cov362_counts_all_C_to_T40.csv.gz"]
+    metadata: "GSE247689_cov362_metadata_g1.tsv.gz"
+    metadata_cell_column: cell
+    metadata_required: false
+    barcode_sample_regex: "_([^_]+)$"
+    metadata_sample_column: orig.ident
+    condition_regex: "^(.+)$"
+    dose_map: {C: 0, T5: 5, T10: 10, T20: 20, T40: 40}
+
+  - name: ovsaho
+    role: train
+    cancer_type: ovarian
+    source: geo
+    accession: GSE247689
+    files: ["GSE247689_ovsaho_counts_all_C_to_T40.csv.gz"]
+    metadata: "GSE247689_ovsaho_metadata_g1.tsv.gz"
+    metadata_cell_column: cell
+    metadata_required: false
+    barcode_sample_regex: "_([^_]+)$"
+    metadata_sample_column: orig.ident
+    condition_regex: "^(.+)$"
+    dose_map: {C: 0, T5: 5, T10: 10, T20: 20, T40: 40}

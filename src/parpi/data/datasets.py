@@ -65,17 +65,24 @@ def attach_metadata(cd: CellData, path: Path, cfg: DatasetConfig) -> CellData:
         raise KeyError(f"{path.name}: no column '{key}'. Columns: {list(meta.columns)}")
     meta = meta.drop_duplicates(key)
     meta.index = meta[key].astype(str)
-    matched = cd.obs["barcode"].astype(str).isin(meta.index).to_numpy()
-    frac = matched.mean() if len(matched) else 0.0
-    log.info("%s: %d / %d cells matched to metadata", cfg.name, matched.sum(), len(matched))
+    ids = cd.obs["barcode"].astype(str)
+    matched = ids.isin(meta.index).to_numpy()
+    # An ID-format mismatch shows up as metadata cells missing from the counts.
+    # (Count matrices often hold many more cells than a curated metadata table.)
+    meta_found = float(meta.index.isin(set(ids)).mean()) if len(meta) else 0.0
+    log.info(
+        "%s: %d / %d cells matched to metadata (%.0f%% of metadata cells found)",
+        cfg.name,
+        matched.sum(),
+        len(matched),
+        100 * meta_found,
+    )
+    if meta_found < 0.5:
+        raise ValueError(
+            f"{cfg.name}: only {meta_found:.0%} of metadata cells are in the count matrix "
+            f"(counts: {ids.head(3).tolist()}, metadata: {meta.index[:3].tolist()})"
+        )
     if cfg.metadata_required:
-        if frac < 0.5:
-            examples = cd.obs["barcode"].head(3).tolist(), meta.index[:3].tolist()
-            raise ValueError(
-                f"{cfg.name}: only {frac:.0%} of cells match metadata IDs "
-                f"(counts: {examples[0]}, metadata: {examples[1]}). Set "
-                "`metadata_required: false` to keep cells without metadata."
-            )
         cd = cd.subset(cells=matched)
     # Left join: cells without metadata get NaN in the metadata columns.
     extra = meta.reindex(cd.obs["barcode"].astype(str)).reset_index(drop=True)

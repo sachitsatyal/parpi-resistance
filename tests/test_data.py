@@ -191,3 +191,66 @@ def test_keep_all_cells_with_barcode_doses_and_cross_check(tmp_path):
     meta.to_csv(raw / "meta.tsv.gz", sep="\t", index=False)
     with pytest.raises(ValueError, match="disagrees with metadata"):
         load_dataset(DatasetConfig(**base), tmp_path)
+
+
+def test_curated_metadata_subset_is_allowed(tmp_path):
+    """PDX layout: metadata covers <50% of matrix cells, but all metadata cells are found."""
+    from parpi.data.datasets import load_dataset
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    cells = [f"AAAC{i}_V1" for i in range(3)] + [f"TTTG{i}_R1.1" for i in range(5)]
+    pd.DataFrame(np.ones((3, 8)), index=["GAPDH", "ACTB", "TP53"], columns=cells).to_csv(
+        raw / "counts.csv.gz"
+    )
+    pd.DataFrame({"cell": cells[:1] + cells[3:5], "orig.ident": ["V1", "R1.1", "R1.1"]}).to_csv(
+        raw / "meta.tsv.gz", sep="\t", index=False
+    )
+    cfg = DatasetConfig(
+        name="pdx",
+        role="external",
+        source="local",
+        path=str(raw),
+        files=["counts.csv.gz"],
+        metadata="meta.tsv.gz",
+        metadata_sample_column="orig.ident",
+        resistant_map={"V1": 0, "R1.1": 1},
+    )
+    cd = load_dataset(cfg, tmp_path)
+    assert cd.n_cells == 3  # 3 of 8 matrix cells (38%) are curated: accepted
+    assert cd.obs["resistant"].tolist() == [0, 1, 1]
+
+    # Barcode-suffix sample labels for the all-cells variant.
+    allcells = DatasetConfig(
+        name="pdx_all",
+        role="external",
+        source="local",
+        path=str(raw),
+        files=["counts.csv.gz"],
+        barcode_sample_regex="_([^_]+)$",
+        resistant_map={"V1": 0, "R1.1": 1},
+    )
+    cd2 = load_dataset(allcells, tmp_path)
+    assert cd2.obs["condition"].value_counts().to_dict() == {"R1.1": 5, "V1": 3}
+
+
+def test_fetch_geo_uses_cache_without_network(tmp_path, monkeypatch):
+    import json
+
+    from parpi.data import download
+
+    dest = tmp_path / "raw"
+    dest.mkdir()
+    f = dest / "GSE1_counts.csv.gz"
+    f.write_bytes(b"abc")
+    (dest / "MANIFEST.json").write_text(json.dumps({f.name: download.sha256(f)}))
+
+    def offline(*a, **k):
+        raise AssertionError("network used although files are cached")
+
+    monkeypatch.setattr(download, "list_geo_files", offline)
+    assert download.fetch_geo("GSE1", ["*counts*"], dest) == [f]
+
+    f.write_bytes(b"tampered")  # cached file changed -> checksum guard still fires
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        download.fetch_geo("GSE1", ["*counts*"], dest)

@@ -1,0 +1,26 @@
+# SINGLE pre-registered PDX evaluation of the selected multi-line model.
+# Selected by leave-one-line-out CV (2026-11-03): variant A (all pathways), ridge.
+# Identical to configs/multiline_a.yaml except that the PDX test sets are added, so the
+# models already trained in outputs/multiline_a are evaluated as they are (no retraining).
+# Run once: prepare -> evaluate -> gate. Report the result whatever it is.
+project: parpi-resistance
+data_dir: data
+output_dir: outputs/multiline_a
+processed_dir: outputs/multiline_a/processed
+includes:
+  - datasets/kuramochi_gse206125.yaml
+  - datasets/cov362_ovsaho_gse247689.yaml
+  - datasets/kuramochi_10x_gse247688.yaml
+  - datasets/external_ovarian.yaml
+features:
+  gene_sets: "enrichr:MSigDB_Hallmark_2020+enrichr:Reactome_2022"
+  min_set_size: 10
+  max_set_size: 300
+  min_gene_coverage: 0.6
+split:
+  strategy: leave_dataset_out
+train:
+  models: [ridge, hierarchical]
+  ensemble_size: 3
+  seed: 42
+  hierarchical: {epochs: 25, patience: 4, heads: 2, dim: 32, batch_size: 512}

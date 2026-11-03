@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,6 +50,19 @@ class GeneSets:
             )
         return GeneSets(
             tuple(n for n, _ in keep), tuple(m for _, m in keep), self.source, self.sha256
+        )
+
+    def exclude(self, patterns: list[str]) -> GeneSets:
+        """Drop sets whose name matches any of the (case-insensitive) regexes."""
+        rx = re.compile("|".join(f"(?:{p})" for p in patterns), re.IGNORECASE)
+        keep = [i for i, n in enumerate(self.names) if not rx.search(n)]
+        if not keep:
+            raise ValueError("exclude_gene_sets removed every gene set")
+        return GeneSets(
+            tuple(self.names[i] for i in keep),
+            tuple(self.members[i] for i in keep),
+            self.source,
+            self.sha256,
         )
 
     def genes(self) -> np.ndarray:

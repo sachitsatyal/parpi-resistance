@@ -54,6 +54,7 @@ def model_card(cfg: Config, hf_repo: str = "OWNER/parpi-resistance") -> str:
                         "model": model,
                         "auroc": m.get("auroc", "n/a"),
                         "n_cells": m.get("n_cells"),
+                        "gated": "yes" if res.get("gated", True) else "report only",
                     }
                 )
     dr = cv.get("dose_response_loo", {})
@@ -108,7 +109,7 @@ labels are confounded with technical factors.
 AUROC for separating resistant from parental cells. 0.5 = chance.
 
 {
-        _table(ext_rows, ["dataset", "cancer", "model", "auroc", "n_cells"])
+        _table(ext_rows, ["dataset", "cancer", "model", "auroc", "n_cells", "gated"])
         if ext_rows
         else "_No external datasets evaluated._"
     }

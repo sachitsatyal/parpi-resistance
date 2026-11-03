@@ -108,3 +108,17 @@ def test_unlabelled_states_are_ignored(xy):
     assert "" not in set(p.state_classes)
     cm = classification_metrics(p.state_proba, p.state_classes, state)
     assert 0 <= cm["state_balanced_accuracy"] <= 1
+
+
+def test_leave_dataset_out_folds():
+    groups = np.array(["a", "a", "b", "c", "b", "c"])
+    folds = make_folds(groups, SplitConfig(strategy="leave_dataset_out"), seed=0)
+    assert [sorted(set(groups[f])) for f in folds] == [["a"], ["b"], ["c"]]
+    with pytest.raises(ValueError, match="two training datasets"):
+        make_folds(np.array(["a", "a"]), SplitConfig(strategy="leave_dataset_out"), seed=0)
+
+
+def test_state_metrics_skip_folds_without_labels():
+    proba = np.array([[0.7, 0.3], [0.4, 0.6]])
+    classes = np.array(["S1", "S2"])
+    assert classification_metrics(proba, classes, np.array(["", ""])) == {}
