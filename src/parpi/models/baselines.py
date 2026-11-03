@@ -33,8 +33,11 @@ class _PathwayModel:
     def fit(self, x: Inputs, y: Targets, seed: int) -> _PathwayModel:
         self._make(seed)
         self.reg.fit(x.pathways, y.score)
-        if y.state is not None and len(np.unique(y.state)) > 1 and self.clf is not None:
-            self.clf.fit(x.pathways, y.state)
+        labelled = None if y.state is None else y.state != ""
+        if (
+            labelled is not None and self.clf is not None and len(np.unique(y.state[labelled])) > 1  # type: ignore[index]
+        ):
+            self.clf.fit(x.pathways[labelled], y.state[labelled])  # type: ignore[index]
         else:
             self.clf = None
         # Importance is computed lazily (only bundles need it, CV does not) on a

@@ -24,7 +24,8 @@ class Inputs:
 @dataclass
 class Targets:
     score: np.ndarray  # continuous resistance position in [0, 1]
-    state: np.ndarray | None = None  # optional categorical cell-state labels
+    # Optional categorical cell-state labels; "" marks a cell with no state label.
+    state: np.ndarray | None = None
 
     def take(self, idx: np.ndarray) -> Targets:
         return Targets(self.score[idx], None if self.state is None else self.state[idx])

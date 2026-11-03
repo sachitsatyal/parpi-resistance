@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import re
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from parpi.celldata import CellData
 from parpi.config import DatasetConfig
@@ -26,19 +28,55 @@ def load_dataset(cfg: DatasetConfig, data_dir: Path) -> CellData:
             cells=int(cfg.synthetic.get("cells_per_condition", 150)),
         )
     else:
+        patterns = cfg.files + ([cfg.metadata] if cfg.metadata else [])
         if cfg.source == "geo":
             if not cfg.accession:
                 raise ValueError(f"dataset {cfg.name}: source=geo needs an accession")
-            files = fetch_geo(cfg.accession, cfg.files, raw_dir)
+            files = fetch_geo(cfg.accession, patterns, raw_dir)
         else:
-            files = sorted(p for pat in cfg.files for p in raw_dir.glob(pat))
+            files = sorted({p for pat in patterns for p in raw_dir.glob(pat)})
         files = [f for f in files if not f.name.endswith((".tar", "MANIFEST.json"))]
-        if not files:
+        meta_files = [f for f in files if cfg.metadata and fnmatch.fnmatch(f.name, cfg.metadata)]
+        count_files = [f for f in files if f not in meta_files]
+        if not count_files:
             raise FileNotFoundError(f"dataset {cfg.name}: no count files found in {raw_dir}")
-        parts = [read_any(f) for f in files]
+        parts = [read_any(f) for f in count_files]
         universe = np.array(sorted(set().union(*[set(p.genes) for p in parts])))
         cd = CellData.concat([p.align_genes(universe)[0] for p in parts])
+        if cfg.metadata:
+            if len(meta_files) != 1:
+                raise FileNotFoundError(
+                    f"dataset {cfg.name}: expected one metadata file matching "
+                    f"'{cfg.metadata}', found {[f.name for f in meta_files]}"
+                )
+            cd = attach_metadata(cd, meta_files[0], cfg)
     return annotate(cd, cfg)
+
+
+def attach_metadata(cd: CellData, path: Path, cfg: DatasetConfig) -> CellData:
+    """Join a per-cell metadata table onto the counts by cell ID; keep matched cells only."""
+    sep = "," if ".csv" in path.name.lower() else "\t"
+    meta = pd.read_csv(path, sep=sep)
+    key = cfg.metadata_cell_column
+    if key not in meta:
+        raise KeyError(f"{path.name}: no column '{key}'. Columns: {list(meta.columns)}")
+    meta = meta.drop_duplicates(key).set_index(meta[key].astype(str))
+    matched = cd.obs["barcode"].astype(str).isin(meta.index).to_numpy()
+    frac = matched.mean() if len(matched) else 0.0
+    log.info("%s: %d / %d cells matched to metadata", cfg.name, matched.sum(), len(matched))
+    if frac < 0.5:
+        examples = cd.obs["barcode"].head(3).tolist(), meta.index[:3].tolist()
+        raise ValueError(
+            f"{cfg.name}: only {frac:.0%} of cells match metadata IDs "
+            f"(counts: {examples[0]}, metadata: {examples[1]})"
+        )
+    cd = cd.subset(cells=matched)
+    extra = meta.loc[cd.obs["barcode"].astype(str)].reset_index(drop=True)
+    extra = extra.drop(columns=[c for c in extra.columns if c in cd.obs.columns or c == key])
+    cd.obs = pd.concat([cd.obs.reset_index(drop=True), extra], axis=1)
+    if cfg.metadata_sample_column:
+        cd.obs["sample"] = cd.obs[cfg.metadata_sample_column].astype(str)
+    return cd
 
 
 def annotate(cd: CellData, cfg: DatasetConfig) -> CellData:
@@ -63,8 +101,11 @@ def annotate(cd: CellData, cfg: DatasetConfig) -> CellData:
         obs["dose_um"] = obs["condition"].map(cfg.dose_map).astype(float)
     if cfg.resistant_map:
         obs["resistant"] = obs["condition"].map(cfg.resistant_map)
-    if cfg.state_column and cfg.state_column in obs:
-        obs["state"] = obs[cfg.state_column].astype(str)
+    if cfg.state_column:
+        if cfg.state_column not in obs:
+            raise KeyError(f"{cfg.name}: state column '{cfg.state_column}' not found")
+        state = obs[cfg.state_column].astype(str)
+        obs["state"] = state.where(~state.isin(cfg.state_ignore))
     cd.obs = obs
     return cd
 

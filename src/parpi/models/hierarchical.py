@@ -158,8 +158,12 @@ class HierarchicalModel:
         cfg = self.cfg
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         state_idx = None
-        if y.state is not None and len(np.unique(y.state)) > 1:
-            self.classes_, state_idx = np.unique(y.state, return_inverse=True)
+        if y.state is not None:
+            labelled = y.state != ""
+            if len(np.unique(y.state[labelled])) > 1:
+                self.classes_ = np.unique(y.state[labelled])
+                # Unlabelled cells get -1 and are ignored by the state loss.
+                state_idx = np.where(labelled, np.searchsorted(self.classes_, y.state), -1)
         n_states = 0 if self.classes_ is None else len(self.classes_)
         self.net = HiPathNet(self.membership, cfg, n_states)
         self.net.set_scaling(x.pathways, float(y.score.mean()))
@@ -220,8 +224,9 @@ class HierarchicalModel:
         loss = F.mse_loss(out["score"], y)
         target = self.net.standardise(p)
         loss = loss + self.cfg.recon_weight * F.mse_loss(out["recon"], target)
-        if s is not None and "state_logits" in out:
-            loss = loss + self.cfg.state_weight * F.cross_entropy(out["state_logits"], s)
+        if s is not None and "state_logits" in out and bool((s >= 0).any()):
+            ce = F.cross_entropy(out["state_logits"], s, ignore_index=-1)
+            loss = loss + self.cfg.state_weight * ce
         return loss
 
     # ---------------------------------------------------------------- predict

@@ -82,7 +82,7 @@ def expected_calibration_error(proba: np.ndarray, y_idx: np.ndarray, bins: int =
 def classification_metrics(
     proba: np.ndarray, classes: np.ndarray, truth: np.ndarray
 ) -> dict[str, float]:
-    known = np.isin(truth, classes)
+    known = np.isin(truth, classes) & (truth != "")
     proba, truth = proba[known], truth[known]
     pred = classes[proba.argmax(1)]
     y_idx = np.searchsorted(classes, truth)

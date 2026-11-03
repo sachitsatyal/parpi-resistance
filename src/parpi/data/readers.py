@@ -101,20 +101,31 @@ def _read_mtx_dir(folder: Path, prefix: str = "") -> CellData:
     return cd
 
 
-def _read_dense(path: Path) -> CellData:
+def _read_dense(path: Path, chunksize: int = 1000) -> CellData:
+    """Read a dense CSV/TSV count table in row chunks, storing it sparsely.
+
+    Large combined matrices (thousands of cells x ~20k genes) would need several GB
+    as one dense DataFrame; chunking keeps peak memory to one block.
+    """
     sep = "," if ".csv" in path.name.lower() else "\t"
-    df = pd.read_csv(path, sep=sep, index_col=0)
-    df = df.apply(pd.to_numeric, errors="coerce").fillna(0)
-    # Orientation heuristic: gene symbols are mostly upper-case alphanumerics and
-    # there are usually more genes than cells in a per-sample matrix.
-    idx_gene_like = _gene_like_fraction(df.index)
-    col_gene_like = _gene_like_fraction(df.columns)
-    if idx_gene_like >= col_gene_like:
-        df = df.T  # make cells x genes
+    blocks, row_names = [], []
+    columns: pd.Index | None = None
+    for chunk in pd.read_csv(path, sep=sep, index_col=0, chunksize=chunksize):
+        chunk = chunk.apply(pd.to_numeric, errors="coerce").fillna(0)
+        columns = chunk.columns
+        row_names.extend(chunk.index.astype(str))
+        blocks.append(sp.csr_matrix(chunk.to_numpy(dtype=np.float32)))
+    if columns is None:
+        raise ValueError(f"empty count table: {path}")
+    X = sp.vstack(blocks).tocsr()
+    rows, cols = pd.Index(row_names), columns.astype(str)
+    # Orientation: gene symbols look like upper-case identifiers; cell barcodes do not.
+    if _gene_like_fraction(rows) >= _gene_like_fraction(cols):
+        X, rows, cols = X.T.tocsr(), cols, rows  # make cells x genes
     return CellData(
-        X=sp.csr_matrix(df.to_numpy(dtype=np.float32)),
-        obs=pd.DataFrame({"barcode": df.index.astype(str)}),
-        genes=df.columns.astype(str).to_numpy(),
+        X=X,
+        obs=pd.DataFrame({"barcode": np.asarray(rows, dtype=str)}),
+        genes=np.asarray(cols, dtype=str),
     )
 
 

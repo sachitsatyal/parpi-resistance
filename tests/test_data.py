@@ -99,3 +99,42 @@ def test_safe_extract_rejects_path_traversal(tmp_path):
         tar.addfile(info, io.BytesIO(data))
     with pytest.raises(RuntimeError, match="unsafe"):
         safe_extract_tar(archive, tmp_path / "out")
+
+
+def test_combined_matrix_with_metadata_and_states(tmp_path):
+    """GSE206125 layout: one genes x cells CSV for all doses + a per-cell metadata TSV."""
+    from parpi.data.datasets import load_dataset
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    cells = ["bc_ctrlI_1.1", "bc_ctrlI_2.1", "bc_T40_1.1", "bc_T40_2.1", "bc_orphan"]
+    counts = pd.DataFrame(
+        np.arange(15).reshape(3, 5) + 1, index=["GAPDH", "ACTB", "TP53"], columns=cells
+    )
+    counts.to_csv(raw / "all_counts.csv.gz")
+    pd.DataFrame(
+        {
+            "cell": cells[:4],
+            "nGene": 3,
+            "orig.ident": ["C", "C", "T40", "T40"],
+            "State": ["C", "C", "S2", "S3"],
+        }
+    ).to_csv(raw / "meta.tsv.gz", sep="\t", index=False)
+    cfg = DatasetConfig(
+        name="k",
+        source="local",
+        path=str(raw),
+        files=["all_counts.csv.gz"],
+        metadata="meta.tsv.gz",
+        metadata_sample_column="orig.ident",
+        dose_map={"C": 0, "T40": 40},
+        state_column="State",
+        state_ignore=["C"],
+    )
+    cd = load_dataset(cfg, tmp_path)
+    assert cd.n_cells == 4  # orphan cell without metadata dropped
+    assert sorted(cd.genes) == ["ACTB", "GAPDH", "TP53"]
+    assert cd.obs["dose_um"].tolist() == [0, 0, 40, 40]
+    assert cd.obs["state"].isna().tolist() == [True, True, False, False]
+    row = dict(zip(cd.genes, cd.X[2].toarray().ravel(), strict=True))
+    assert row == {"GAPDH": 3, "ACTB": 8, "TP53": 13}  # column 3 of the CSV
