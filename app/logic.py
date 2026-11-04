@@ -22,7 +22,7 @@ MAX_CELLS = int(os.environ.get("PARPI_MAX_CELLS", "50000"))
 @lru_cache(maxsize=2)
 def load_bundle(location: str | None = None) -> ModelBundle:
     """Model location from argument or $PARPI_MODEL (local folder or hf://org/repo@rev)."""
-    loc = location or os.environ.get("PARPI_MODEL", "hf://OWNER/parpi-resistance")
+    loc = location or os.environ.get("PARPI_MODEL", "hf://sawcheet/parpi-resistance")
     return ModelBundle.load(loc)
 
 
@@ -53,6 +53,36 @@ def score_file(
     if pred.attrs["gene_coverage"] < 0.8:
         status += "\n\n⚠️ Low gene coverage: check that genes are HGNC symbols."
     return pred, summary, status
+
+
+ALL = "All samples"
+PAGE_SIZE = 100
+
+
+def display_table(pred: pd.DataFrame) -> pd.DataFrame:
+    """Scores rounded for reading; the CSV download keeps full precision."""
+    cols = [c for c in pred.columns if c.startswith("resistance_score")]
+    return pred.assign(**{c: pred[c].astype(float).round(3) for c in cols})
+
+
+def sample_choices(pred: pd.DataFrame) -> list[str]:
+    return [ALL, *sorted(pred["sample"].astype(str).unique())]
+
+
+def page_view(
+    pred: pd.DataFrame, sample: str = ALL, page: int = 1, size: int = PAGE_SIZE
+) -> tuple[pd.DataFrame, str, int]:
+    """One page of cells, optionally from one sample. Returns (rows, caption, page count)."""
+    rows = pred if sample in (None, ALL) else pred[pred["sample"].astype(str) == sample]
+    n = len(rows)
+    pages = max(1, -(-n // size))
+    page = int(min(max(page or 1, 1), pages))
+    start = (page - 1) * size
+    view = display_table(rows.iloc[start : start + size]).reset_index(drop=True)
+    where = "" if sample in (None, ALL) else f" in {sample}"
+    first, last = (start + 1 if n else 0), min(start + size, n)
+    caption = f"Cells {first}-{last} of {n}{where} (page {page} of {pages})"
+    return view, caption, pages
 
 
 def score_histogram(pred: pd.DataFrame):  # type: ignore[no-untyped-def]

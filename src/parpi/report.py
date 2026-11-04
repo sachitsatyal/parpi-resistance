@@ -39,7 +39,7 @@ def _line_auroc(r: dict[str, Any]) -> float | None:
     return next((v for k, v in r.items() if k.startswith("auroc_control_vs")), None)
 
 
-def model_card(cfg: Config, hf_repo: str = "OWNER/parpi-resistance") -> str:
+def model_card(cfg: Config, hf_repo: str = "sawcheet/parpi-resistance") -> str:
     p = paths(cfg)
     cv = json.loads((p["metrics"] / "cv.json").read_text())
     ext_path = p["metrics"] / "external.json"
@@ -85,6 +85,10 @@ def model_card(cfg: Config, hf_repo: str = "OWNER/parpi-resistance") -> str:
         "Tumors or patients: the score is not a tumor- or patient-level resistance measure.",
         "Absolute levels: scores shift between cell lines; compare samples within one experiment.",
         "Uncertainty: the ensemble spread is not yet calibrated and understates the real error.",
+        "Pathway explanations: `top_pathways` names Hallmark sets only, and they explain "
+        "the Hallmark part of the score; the model also uses Reactome sets. Reactome names "
+        "mislead here: four immune/viral-named sets (e.g. Downstream TCR Signaling) share "
+        "the same 43 proteasome genes. A Hallmark-only model is planned for v0.2.",
     ]
 
     # ------------------------------------------------------------ evaluation
@@ -206,7 +210,7 @@ uv run parpi reproduce -c configs/release.yaml
 """
 
 
-def write_model_card(cfg: Config, hf_repo: str = "OWNER/parpi-resistance") -> Path:
+def write_model_card(cfg: Config, hf_repo: str = "sawcheet/parpi-resistance") -> Path:
     p = paths(cfg)
     card = model_card(cfg, hf_repo)
     sel = (p["models"] / "SELECTED").read_text().strip()

@@ -1,8 +1,8 @@
 # parpi-resistance
 
 [![CI](https://github.com/sachitsatyal/parpi-resistance/actions/workflows/ci.yml/badge.svg)](https://github.com/sachitsatyal/parpi-resistance/actions/workflows/ci.yml)
-[![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97-model-yellow)](https://huggingface.co/OWNER/parpi-resistance)
-[![Demo](https://img.shields.io/badge/%F0%9F%A4%97-demo-blue)](https://huggingface.co/spaces/OWNER/parpi-resistance-app)
+[![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97-model-yellow)](https://huggingface.co/sawcheet/parpi-resistance)
+[![Demo](https://img.shields.io/badge/%F0%9F%A4%97-demo-blue)](https://huggingface.co/spaces/sawcheet/parpi-resistance-app)
 
 A reproducible single-cell score of how far ovarian cancer cells have **adapted to the PARP
 inhibitor olaparib**. It extends the hierarchical attention model of *Attention-Based
@@ -52,9 +52,9 @@ uv run python scripts/make_readme_figure.py    # redraws the figure above from t
 ## Use a trained model
 
 ```bash
-parpi predict sample.h5ad -m hf://OWNER/parpi-resistance@v0.1.0 -o predictions.csv
-parpi dose-curve -m hf://OWNER/parpi-resistance@v0.1.0 -o curve.csv
-docker run --rm -p 7860:7860 -e PARPI_MODEL=hf://OWNER/parpi-resistance@v0.1.0 \
+parpi predict sample.h5ad -m hf://sawcheet/parpi-resistance@v0.1.0 -o predictions.csv
+parpi dose-curve -m hf://sawcheet/parpi-resistance@v0.1.0 -o curve.csv
+docker run --rm -p 7860:7860 -e PARPI_MODEL=hf://sawcheet/parpi-resistance@v0.1.0 \
   ghcr.io/sachitsatyal/parpi-resistance:latest     # web app on http://localhost:7860
 ```
 
@@ -62,7 +62,7 @@ docker run --rm -p 7860:7860 -e PARPI_MODEL=hf://OWNER/parpi-resistance@v0.1.0 \
 from parpi.bundle import ModelBundle
 from parpi.data.readers import read_any
 
-bundle = ModelBundle.load("hf://OWNER/parpi-resistance@v0.1.0")
+bundle = ModelBundle.load("hf://sawcheet/parpi-resistance@v0.1.0")
 pred = bundle.predict(read_any("sample.h5ad"))  # one row per cell
 ```
 

@@ -19,8 +19,8 @@ tag v*    ──► release.yml  retrain from scratch → gate ──► model b
    - Variable `HF_SPACE_REPO`, e.g. `your-org/parpi-resistance-app`.
    - Environment `huggingface`. Add required reviewers if a human should approve each
      deployment.
-4. **Placeholders.** Replace `OWNER` in `README.md`, `pyproject.toml` and
-   `app/logic.py`.
+4. **Names (done).** GitHub `sachitsatyal/parpi-resistance`; Hugging Face model
+   `sawcheet/parpi-resistance`, Space `sawcheet/parpi-resistance-app`.
 
 ## Releasing
 

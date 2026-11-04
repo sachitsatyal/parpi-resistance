@@ -37,6 +37,9 @@ class Prediction:
     score_std: np.ndarray
     state_proba: np.ndarray | None = None  # cells x classes
     state_classes: np.ndarray | None = None
+    # Prediction before clipping to [0, 1], where the model clips. Used for the
+    # ensemble spread so that cells clipped at 0 or 1 do not report zero uncertainty.
+    raw_score: np.ndarray | None = None
 
 
 class Model(Protocol):
@@ -73,15 +76,18 @@ class Ensemble:
     def predict(self, x: Inputs) -> Prediction:
         preds = [m.predict(x) for m in self.members]
         scores = np.stack([p.score for p in preds])
+        raw = np.stack([p.score if p.raw_score is None else p.raw_score for p in preds])
         proba = classes = None
         if preds[0].state_proba is not None:
             classes = np.unique(np.concatenate([p.state_classes for p in preds]))
             proba = np.mean([_align_proba(p, classes) for p in preds], axis=0)
-        # Ensemble spread + mean of members' own (aleatoric) std where provided.
+        # Ensemble spread (of the unclipped predictions) + mean of members' own
+        # (aleatoric) std where provided. The score itself stays the mean of clipped
+        # member scores, so reported metrics are unchanged.
         member_std = np.mean([p.score_std for p in preds], axis=0)
         return Prediction(
             score=scores.mean(0),
-            score_std=np.sqrt(scores.var(0) + member_std**2),
+            score_std=np.sqrt(raw.var(0) + member_std**2),
             state_proba=proba,
             state_classes=classes,
         )

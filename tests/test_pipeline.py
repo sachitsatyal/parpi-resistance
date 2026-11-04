@@ -165,7 +165,7 @@ def test_leave_dataset_out_pipeline(tmp_path):
 
 
 def test_top_pathways_are_signed_for_linear_models(smoke_config):
-    """Resistant cells list planted sets with the right direction: SET_00-02 up, SET_03 down."""
+    """Resistant cells: SET_00-02 high and SET_03 low, all four raising the score."""
     from collections import Counter
 
     prepare(smoke_config)
@@ -176,9 +176,44 @@ def test_top_pathways_are_signed_for_linear_models(smoke_config):
         {"resistant": 320.0}, cells_per_condition=60, seed=12, resistant_override={"resistant": 1.0}
     )
     tops = Counter(p for t in bundle.predict(cd, top_k=3)["top_pathways"] for p in t.split(";"))
-    planted = sum(tops[f"SET_0{i} (up)"] for i in range(3)) + tops["SET_03 (down)"]
+    up = "(high, raises score)"
+    planted = sum(tops[f"SET_0{i} {up}"] for i in range(3)) + tops["SET_03 (low, raises score)"]
     assert planted > 0.5 * sum(tops.values())
-    assert tops["SET_03 (up)"] == 0  # the down-regulated set never counts as raised
+    assert tops["SET_03 (high, raises score)"] == 0  # its weight is negative
+
+
+def test_untreated_cells_explained_by_what_lowers_the_score(smoke_config):
+    from collections import Counter
+
+    prepare(smoke_config)
+    train(smoke_config)
+    bundle = ModelBundle.load(paths(smoke_config)["models"] / "ridge")
+    cd, _ = simulate({"control": 0.0}, cells_per_condition=60, seed=13)
+    tags = Counter(
+        p.rsplit("(", 1)[1]
+        for t in bundle.predict(cd, top_k=3)["top_pathways"]
+        for p in t.split(";")
+    )
+    assert sum(v for k, v in tags.items() if "lowers" in k) > sum(tags.values()) / 2
+
+
+def test_clipped_cells_keep_their_uncertainty():
+    from parpi.models.base import Ensemble, Prediction
+
+    class Fixed:
+        name = "fixed"
+
+        def __init__(self, raw):
+            self.raw = np.array(raw)
+
+        def predict(self, x):
+            return Prediction(np.clip(self.raw, 0, 1), np.zeros(1), raw_score=self.raw)
+
+    ens = Ensemble(lambda: None, 2, "e")  # type: ignore[arg-type,return-value]
+    ens.members = [Fixed([-0.2]), Fixed([-0.1])]
+    pred = ens.predict(None)  # type: ignore[arg-type]
+    assert pred.score[0] == 0.0
+    assert pred.score_std[0] == pytest.approx(0.05)
 
 
 def test_predict_states_off_drops_state_outputs(smoke_config, tmp_path):
@@ -212,3 +247,26 @@ def test_predict_states_off_drops_state_outputs(smoke_config, tmp_path):
     cd, _ = simulate({"x": 40.0}, cells_per_condition=10, seed=3)
     pred = ModelBundle.load(paths(cfg)["models"] / "ridge").predict(cd)
     assert "predicted_state" not in pred.columns
+
+
+def test_explanations_skip_reactome_names(smoke_config):
+    """Sets named like Reactome (``... R-HSA-<id>``) never appear unless explain='all'."""
+    from dataclasses import replace
+
+    prepare(smoke_config)
+    train(smoke_config)
+    bundle = ModelBundle.load(paths(smoke_config)["models"] / "ridge")
+    gs = bundle.features.gene_sets
+    renamed = tuple(f"{n} R-HSA-{i}" if i < 2 else n for i, n in enumerate(gs.names))
+    bundle.features.gene_sets = replace(gs, names=renamed)
+    cd, _ = simulate(
+        {"resistant": 320.0}, cells_per_condition=30, seed=14, resistant_override={"resistant": 1.0}
+    )
+    shown = {p for t in bundle.predict(cd, top_k=3)["top_pathways"] for p in t.split(";")}
+    assert not any("R-HSA-" in p for p in shown)
+    shown_all = {
+        p for t in bundle.predict(cd, top_k=3, explain="all")["top_pathways"] for p in t.split(";")
+    }
+    assert any("R-HSA-" in p for p in shown_all)
+    with pytest.raises(ValueError, match="explain"):
+        bundle.predict(cd, explain="kegg")

@@ -2,9 +2,10 @@
 
     uv run python scripts/make_example.py
 
-Takes 250 untreated (C.R1) and 250 top-dose (T320.A.R1) Kuramochi cells sequenced on 10x
-(GSE247688, the platform check; not training data), keeps the release model's genes, and
-writes app/examples/kuramochi_10x_example.h5ad (well under 1 MB). Within-cell ranks over the
+Takes 200 cells each of untreated (C.R1), 10 uM (T10.A.R1) and 320 uM (T320.A.R1) Kuramochi
+cells sequenced on 10x (GSE247688, the platform check; not training data), keeps the release
+model's genes, and writes app/examples/kuramochi_10x_example.h5ad (about 1 MB). Three doses
+show the continuum, not just the two extremes. Within-cell ranks over the
 model's genes are unchanged by dropping other genes, so scores match the full file.
 """
 
@@ -18,14 +19,19 @@ from parpi.data.readers import read_any
 RAW = Path("data/raw/kuramochi_10x/GSE247688_kuramochi_counts_all_C_P10_P320_T10_T320.csv.gz")
 MODEL = Path("outputs/release/models/ridge")
 OUT = Path("app/examples/kuramochi_10x_example.h5ad")
-N = 250
+N = 200
 
 bundle = ModelBundle.load(MODEL)
 cd = read_any(RAW)
 sample = cd.obs["barcode"].str.extract(r"_([^_]+)$")[0]
 rng = np.random.default_rng(0)
 picks = []
-for label, name in (("C.R1", "untreated (C.R1)"), ("T320.A.R1", "320 uM on drug (T320.A.R1)")):
+DOSES = (
+    ("C.R1", "1. untreated (C.R1)"),
+    ("T10.A.R1", "2. 10 uM on drug (T10.A.R1)"),
+    ("T320.A.R1", "3. 320 uM on drug (T320.A.R1)"),
+)
+for label, name in DOSES:
     idx = np.where(sample.to_numpy() == label)[0]
     chosen = np.sort(rng.choice(idx, size=min(N, len(idx)), replace=False))
     picks.append((chosen, name))

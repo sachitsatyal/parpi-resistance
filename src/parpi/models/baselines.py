@@ -52,13 +52,18 @@ class _PathwayModel:
         return np.clip(r.importances_mean, 0, None)
 
     def predict(self, x: Inputs) -> Prediction:
-        score = np.clip(self.reg.predict(x.pathways), 0.0, 1.0)
+        raw = np.asarray(self.reg.predict(x.pathways), dtype=float)
+        score = np.clip(raw, 0.0, 1.0)
         proba = classes = None
         if self.clf is not None:
             proba = self.clf.predict_proba(x.pathways)
             classes = np.asarray(self.clf.classes_)
         return Prediction(
-            score=score, score_std=np.zeros_like(score), state_proba=proba, state_classes=classes
+            score=score,
+            score_std=np.zeros_like(score),
+            state_proba=proba,
+            state_classes=classes,
+            raw_score=raw,
         )
 
     def pathway_importance(self) -> np.ndarray:

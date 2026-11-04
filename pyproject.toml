@@ -53,7 +53,7 @@ all = ["parpi-resistance[io,torch,track,app]"]
 parpi = "parpi.cli:main"
 
 [project.urls]
-Repository = "https://github.com/OWNER/parpi-resistance"
+Repository = "https://github.com/sachitsatyal/parpi-resistance"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parpi"]

@@ -11,7 +11,15 @@ from parpi.pipeline import paths, prepare, train
 from tests.conftest import ROOT
 
 sys.path.insert(0, str(ROOT / "app"))
-from logic import dose_curve_figure, load_bundle, score_file, score_histogram
+from logic import (
+    ALL,
+    dose_curve_figure,
+    load_bundle,
+    page_view,
+    sample_choices,
+    score_file,
+    score_histogram,
+)
 
 
 def test_app_logic_end_to_end(smoke_config, tmp_path):
@@ -44,3 +52,22 @@ def test_example_h5ad_round_trip(smoke_config, tmp_path):
     pred, summary, _ = score_file(path, bundle)
     assert set(summary["sample"]) == {"parental", "resistant"}
     assert np.isfinite(pred["resistance_score"]).all()
+
+
+def test_page_view_paginates_and_filters():
+    pred = pd.DataFrame(
+        {
+            "barcode": [f"c{i}" for i in range(250)],
+            "sample": ["untreated"] * 120 + ["320 uM"] * 130,
+            "resistance_score": np.linspace(0, 1, 250, dtype=np.float32),
+            "resistance_score_std": np.zeros(250, dtype=np.float32),
+        }
+    )
+    assert sample_choices(pred) == [ALL, "320 uM", "untreated"]
+    view, caption, pages = page_view(pred, ALL, 3)
+    assert (len(view), pages) == (50, 3)
+    assert caption.startswith("Cells 201-250 of 250")
+    view, caption, pages = page_view(pred, "320 uM", 1)
+    assert set(view["sample"]) == {"320 uM"} and pages == 2 and len(view) == 100
+    assert page_view(pred, "320 uM", 99)[1].endswith("(page 2 of 2)")  # clamped
+    assert view["resistance_score"].iloc[1] == round(float(pred["resistance_score"].iloc[121]), 3)

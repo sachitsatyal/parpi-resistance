@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,7 @@ from parpi.models.base import Inputs, Prediction
 from parpi.models.dose_response import DoseResponseModel
 from parpi.preprocess import FeatureSpace
 
+REACTOME = re.compile(r"R-HSA-\d+\s*$")
 BUNDLE_FORMAT = 1
 
 
@@ -98,8 +100,14 @@ class ModelBundle:
         qc_cd, ranks, coverage = self.features.transform(cd, apply_qc=apply_qc)
         return qc_cd, Inputs(ranks, self.features.pathway_scores(ranks)), coverage
 
-    def predict(self, cd: CellData, apply_qc: bool = True, top_k: int = 5) -> pd.DataFrame:
-        """Per-cell predictions with uncertainty and top contributing pathways."""
+    def predict(
+        self, cd: CellData, apply_qc: bool = True, top_k: int = 5, explain: str = "hallmark"
+    ) -> pd.DataFrame:
+        """Per-cell predictions with uncertainty and top contributing pathways.
+
+        ``explain="hallmark"`` (default) names only Hallmark pathways in ``top_pathways``;
+        ``"all"`` also allows Reactome sets, whose names can mislead (see `_explainable`).
+        """
         qc_cd, x, coverage = self.featurize(cd, apply_qc=apply_qc)
         pred: Prediction = self.model.predict(x)
         out = qc_cd.obs[[c for c in ("barcode", "sample") if c in qc_cd.obs]].copy()
@@ -109,7 +117,7 @@ class ModelBundle:
             for j, c in enumerate(pred.state_classes):
                 out[f"p_state_{c}"] = pred.state_proba[:, j]
             out["predicted_state"] = pred.state_classes[pred.state_proba.argmax(1)]
-        out["top_pathways"] = self._top_pathways(x, top_k)
+        out["top_pathways"] = self._top_pathways(x, top_k, explain)
         out.attrs["gene_coverage"] = coverage
         return out.reset_index(drop=True)
 
@@ -124,14 +132,33 @@ class ModelBundle:
             coefs.append(np.ravel(last.coef_))
         return np.mean(coefs, axis=0) if coefs else None
 
-    def _top_pathways(self, x: Inputs, k: int) -> list[str]:
-        """Pathways that push each cell's score up the most, relative to training cells.
+    def _explainable(self, explain: str) -> np.ndarray:
+        """Columns allowed in explanations.
+
+        Reactome sets (names ending in ``R-HSA-<id>``) overlap heavily: in the release
+        model, "Downstream TCR Signaling", "Activation Of NF-kappaB In B Cells",
+        "Programmed Cell Death" and "Vpu Mediated Degradation Of CD4" each contain the
+        same 43 proteasome genes, so immune and viral names appear for ovarian cells.
+        Hallmark sets have fewer, clearer names. The model still uses every set; only
+        the explanation is restricted. Falls back to all sets if none are Hallmark.
+        """
+        names = self.features.gene_sets.names
+        if explain == "all":
+            return np.arange(len(names))
+        if explain != "hallmark":
+            raise ValueError(f"explain must be 'hallmark' or 'all', not {explain!r}")
+        keep = [i for i, n in enumerate(names) if not REACTOME.search(n)]
+        return np.array(keep) if keep else np.arange(len(names))
+
+    def _top_pathways(self, x: Inputs, k: int, explain: str = "hallmark") -> list[str]:
+        """The pathways that move each cell's score the most, in either direction.
 
         Linear models: contribution = standardised weight x the cell's standardised
-        pathway activity, so a pathway counts only when its activity moves the score
-        upward in this cell; that can be a pathway *below* its usual level when its
-        weight is negative. Each name is tagged "(up)" or "(down)": the cell's activity
-        vs. training cells. Other models: unsigned importance x elevation (approximate).
+        pathway activity (vs. training cells). Pathways are ranked by the size of the
+        contribution and tagged with the cell's activity ("high"/"low" vs. training
+        cells) and its effect ("raises score"/"lowers score"), e.g.
+        ``MYC targets (high, raises score)``. Other models have no signed weights, so
+        names are ranked by importance x |activity| and tagged "high"/"low" only.
         """
         names = np.array(self.features.gene_sets.names)
         # Standardise against the *training* distribution so results do not depend
@@ -141,11 +168,17 @@ class ModelBundle:
         z = (x.pathways - mu) / (sd + 1e-9)
         w = self._signed_weights()
         contrib = z * (w if w is not None else self.model.pathway_importance())
-        top = np.argsort(-contrib, axis=1)[:, :k]
-        return [
-            ";".join(f"{names[j]} ({'up' if z[i, j] >= 0 else 'down'})" for j in row)
-            for i, row in enumerate(top)
-        ]
+        allowed = self._explainable(explain)
+        order = np.argsort(-np.abs(contrib[:, allowed]), axis=1)[:, :k]
+        top = allowed[order]
+
+        def tag(i: int, j: int) -> str:
+            level = "high" if z[i, j] >= 0 else "low"
+            if w is None:
+                return level
+            return f"{level}, {'raises' if contrib[i, j] >= 0 else 'lowers'} score"
+
+        return [";".join(f"{names[j]} ({tag(i, j)})" for j in row) for i, row in enumerate(top)]
 
     def pathway_importance(self) -> pd.DataFrame:
         imp = self.model.pathway_importance()

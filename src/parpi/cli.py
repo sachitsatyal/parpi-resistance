@@ -69,7 +69,7 @@ def evaluate(config: str) -> None:
 
 @main.command()
 @CONFIG
-@click.option("--hf-repo", default="OWNER/parpi-resistance", show_default=True)
+@click.option("--hf-repo", default="sawcheet/parpi-resistance", show_default=True)
 def report(config: str, hf_repo: str) -> None:
     """Write the model card for the selected model from the run's metrics."""
     from parpi.report import write_model_card
@@ -123,13 +123,20 @@ def reproduce(ctx: click.Context, config: str) -> None:
 )
 @click.option("--out", "-o", default="predictions.csv", show_default=True)
 @click.option("--no-qc", is_flag=True, help="Skip QC filtering (input already filtered).")
-def predict(input_path: str, model: str, out: str, no_qc: bool) -> None:
+@click.option(
+    "--explain",
+    type=click.Choice(["hallmark", "all"]),
+    default="hallmark",
+    show_default=True,
+    help="Pathway library named in top_pathways (the model always uses all sets).",
+)
+def predict(input_path: str, model: str, out: str, no_qc: bool, explain: str) -> None:
     """Score cells in an .h5ad / 10x / CSV file."""
     from parpi.bundle import ModelBundle
     from parpi.data.readers import read_any
 
     bundle = ModelBundle.load(model)
-    df = bundle.predict(read_any(input_path), apply_qc=not no_qc)
+    df = bundle.predict(read_any(input_path), apply_qc=not no_qc, explain=explain)
     df.to_csv(out, index=False)
     click.echo(f"{len(df)} cells scored, gene coverage {df.attrs['gene_coverage']:.0%} -> {out}")
 
