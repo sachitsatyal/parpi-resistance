@@ -1,0 +1,24 @@
+# Redeploy the Hugging Face Space for an already-published model tag, without
+# retraining (for example after a failed deploy step or an app-only fix).
+name: Deploy Space
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published model tag to serve, e.g. v0.1.0"
+        required: true
+
+jobs:
+  deploy-space:
+    runs-on: ubuntu-latest
+    environment: huggingface
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { python-version: "3.12" }
+      - env: { HF_TOKEN: "${{ secrets.HF_TOKEN }}" }
+        run: >
+          uv run --no-project --with "huggingface_hub>=0.23"
+          python scripts/deploy_space.py --space "${{ vars.HF_SPACE_REPO }}"
+          --model "hf://${{ vars.HF_MODEL_REPO }}@${{ inputs.tag }}"

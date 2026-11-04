@@ -3,6 +3,7 @@
 ```
 push / PR ──► ci.yml       lint · types · tests (incl. PyTorch) · smoke pipeline + gate · Docker build
 manual    ──► train.yml    full real-data run → artifact (nothing published)
+manual    ──► deploy-space.yml  redeploy the Space for an already-published model tag
 tag v*    ──► release.yml  retrain from scratch → gate ──► model bundle → HF Hub (tagged)
                                                     ├──► image → ghcr.io
                                                     └──► app   → HF Space (pinned to that model tag)
@@ -42,3 +43,9 @@ make docker
 docker run --rm -p 7860:7860 -v $PWD/outputs:/models \
   -e PARPI_MODEL=/models/models/ridge parpi-resistance:dev
 ```
+
+## Redeploying the app only
+
+Actions → **Deploy Space** → **Run workflow**, with the model tag (e.g. `v0.1.0`). This
+re-uploads the app from the current `main` and pins it to that published model; nothing
+is retrained.
