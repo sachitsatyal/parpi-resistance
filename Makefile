@@ -1,4 +1,4 @@
-CONFIG ?= configs/default.yaml
+CONFIG ?= configs/release.yaml
 UV ?= uv
 
 .PHONY: setup lock lint typecheck test smoke reproduce gate docker app clean

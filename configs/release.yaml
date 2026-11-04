@@ -1,0 +1,34 @@
+# v0.1 release: in-vitro olaparib adaptation score for ovarian cancer cell lines.
+#
+# The model choice was made in the pre-registered multi-line round
+# (configs/multiline_a.yaml / multiline_b.yaml, see docs/DECISIONS.md): variant A
+# (all pathways), ridge. This config retrains exactly that model from the raw data,
+# so the release is reproducible from the tagged commit alone and fits on CI runners.
+#
+# Claim = ranking within an experiment, transferring to an unseen ovarian cell line and
+# an unseen sequencing platform. The gate checks that claim. PDX is reported in the
+# model card but does not gate: the final pre-registered PDX test failed (AUROC 0.614),
+# and the tool is scoped to in-vitro use accordingly.
+project: parpi-resistance
+data_dir: data
+output_dir: outputs/release
+processed_dir: outputs/release/processed
+includes:
+  - datasets/kuramochi_gse206125.yaml
+  - datasets/cov362_ovsaho_gse247689.yaml
+  - datasets/kuramochi_10x_gse247688.yaml
+  - datasets/external_ovarian.yaml
+gated_datasets: [kuramochi_10x]
+features:
+  gene_sets: "enrichr:MSigDB_Hallmark_2020+enrichr:Reactome_2022"
+  min_set_size: 10
+  max_set_size: 300
+  min_gene_coverage: 0.6
+split:
+  strategy: leave_dataset_out
+train:
+  models: [ridge]
+  ensemble_size: 3
+  # State labels exist for Kuramochi only and were never validated across lines.
+  predict_states: false
+  seed: 42

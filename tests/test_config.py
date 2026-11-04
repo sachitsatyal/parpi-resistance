@@ -8,7 +8,7 @@ from tests.conftest import ROOT
 
 
 def test_default_and_smoke_configs_parse():
-    for name in ("default.yaml", "smoke.yaml", "kuramochi.yaml", "ovarian.yaml"):
+    for name in ("default.yaml", "smoke.yaml", "kuramochi.yaml", "ovarian.yaml", "release.yaml"):
         cfg = load_config(ROOT / "configs" / name)
         assert cfg.train_datasets
 
@@ -66,3 +66,15 @@ def test_final_pdx_config_reuses_variant_a_models():
     assert f.train_datasets == a.train_datasets
     assert f.output_dir == a.output_dir and f.processed_dir == a.processed_dir
     assert [d.name for d in f.external_datasets if d.gate] == ["pdx_resistance"]
+
+
+def test_release_config_scope():
+    r = load_config(ROOT / "configs" / "release.yaml")
+    a = load_config(ROOT / "configs" / "multiline_a.yaml")
+    # Retrains exactly the model selected in the pre-registered round (variant A, ridge).
+    assert r.train.models == ["ridge"] and r.features == a.features
+    assert r.train.predict_states is False  # states not validated across lines
+    assert r.train_datasets == a.train_datasets and r.split.strategy == "leave_dataset_out"
+    assert r.train.ensemble_size == a.train.ensemble_size and r.train.seed == a.train.seed
+    gated = [d.name for d in r.external_datasets if r.is_gated(d)]
+    assert gated == ["kuramochi_10x"]  # PDX reported, not part of the in-vitro claim

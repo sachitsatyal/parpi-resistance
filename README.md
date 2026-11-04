@@ -1,47 +1,61 @@
 # parpi-resistance
 
-[![CI](https://github.com/OWNER/parpi-resistance/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/parpi-resistance/actions/workflows/ci.yml)
+[![CI](https://github.com/sachitsatyal/parpi-resistance/actions/workflows/ci.yml/badge.svg)](https://github.com/sachitsatyal/parpi-resistance/actions/workflows/ci.yml)
 [![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97-model-yellow)](https://huggingface.co/OWNER/parpi-resistance)
-[![Space](https://img.shields.io/badge/%F0%9F%A4%97-demo-blue)](https://huggingface.co/spaces/OWNER/parpi-resistance-app)
+[![Demo](https://img.shields.io/badge/%F0%9F%A4%97-demo-blue)](https://huggingface.co/spaces/OWNER/parpi-resistance-app)
 
-Reproducible single-cell models of **PARP-inhibitor (olaparib) resistance** in ovarian
-cancer, with an exploratory breast-cancer check.
+A reproducible single-cell score of how far ovarian cancer cells have **adapted to the PARP
+inhibitor olaparib**. It extends the hierarchical attention model of *Attention-Based
+Hierarchical Graph Autoencoder for Dose-Specific Single-Cell Resistance Dynamics* (Satyal,
+Long, Gao) to cell-level learning, validated on cell lines and a sequencing platform it never
+saw during training.
 
-Give it single-cell RNA-seq counts. For every cell it returns:
+![Results](docs/figures/results.png)
 
-- a **resistance score** (0 = drug-naive, 1 = adapted to the top training dose),
-- an **uncertainty** for that score,
-- the **pathways driving** the score,
-- **dose-response curves** of pathway activity across olaparib concentrations, with
-  bootstrap bands.
+**Status (v0.1, in vitro):**
 
-> Research use only. Not a diagnostic or a clinical decision tool.
+- **Unseen cell lines:** trained on three ovarian lines (Kuramochi, COV362, OVSAHO; 31,762
+  cells), the score ranks the doses of a held-out line (Spearman 0.70–0.99) and separates
+  untreated from top-dose cells (AUROC 0.76–0.94).
+- **Unseen platform:** the same line on 10x instead of inDrop gives AUROC 0.9999.
+- **Not tumors:** a pre-registered test on patient-derived xenografts scored AUROC 0.614 (bar
+  0.65). The tool is therefore scoped to cell-line experiments.
+
+> Research use only. Not a diagnostic, and not a tumor or patient resistance score.
+> Compare samples within one experiment: absolute levels shift between cell lines.
+
+## What it returns
+
+For every cell in a single-cell RNA-seq sample:
+
+- an **adaptation score**: 0 = untreated, 1 = adapted to the top training dose (320 µM),
+- an ensemble **uncertainty** (not yet calibrated; it understates the real error),
+- the **pathways** behind the score,
+- **dose-response curves** of pathway activity with bootstrap bands; doses outside the
+  measured range are flagged, not predicted.
 
 ## Quick start
 
 ```bash
-# 1. Environment (Python ≥3.10, https://docs.astral.sh/uv/)
-make lock            # first time only: creates uv.lock -> commit it
-make setup
+# Environment from the lockfile (Python ≥ 3.10, https://docs.astral.sh/uv/)
+uv sync --all-extras
 
-# 2. Prove the pipeline end to end on synthetic data with planted ground truth (~1 min)
-make smoke
+# End-to-end on synthetic data with a planted signal (~1 min)
+uv run parpi reproduce -c configs/smoke.yaml
 
-# 3. Full run on the public GEO data (downloads ~GBs, see docs/DATA.md first)
-make reproduce
-make gate            # exits non-zero unless the model passes the release criteria
+# The release run on the public GEO data (downloads ~400 MB)
+uv run parpi reproduce -c configs/release.yaml
+uv run parpi gate -c configs/release.yaml      # exits non-zero unless the release criteria pass
+uv run python scripts/make_readme_figure.py    # redraws the figure above from the metrics
 ```
 
 ## Use a trained model
 
 ```bash
-# CLI
 parpi predict sample.h5ad -m hf://OWNER/parpi-resistance@v0.1.0 -o predictions.csv
 parpi dose-curve -m hf://OWNER/parpi-resistance@v0.1.0 -o curve.csv
-
-# Docker (web app on http://localhost:7860)
 docker run --rm -p 7860:7860 -e PARPI_MODEL=hf://OWNER/parpi-resistance@v0.1.0 \
-  ghcr.io/OWNER/parpi-resistance:latest
+  ghcr.io/sachitsatyal/parpi-resistance:latest     # web app on http://localhost:7860
 ```
 
 ```python
@@ -50,53 +64,41 @@ from parpi.data.readers import read_any
 
 bundle = ModelBundle.load("hf://OWNER/parpi-resistance@v0.1.0")
 pred = bundle.predict(read_any("sample.h5ad"))  # one row per cell
-bundle.pathway_importance().head(10)
 ```
 
-Accepted inputs: `.h5ad`, 10x `.h5`, 10x matrix folders, and CSV/TSV count tables. Genes
-must be HGNC symbols. Raw counts are expected, and QC is applied unless `--no-qc` is set.
+Inputs: `.h5ad`, 10x `.h5`, 10x matrix folders, or CSV/TSV counts; raw counts, HGNC symbols.
 
-## What makes the results trustworthy
+## How the results were obtained
 
 | Practice | How it is enforced |
 |---|---|
-| Every result traces to its inputs | Config hash, git commit, package versions, and data/gene-set SHA-256s are stored with each model |
-| Same input, same output | Seeded, deterministic training. A test retrains and asserts identical metrics |
-| Honest evaluation | Whole doses are held out (`leave_dose_out`). External cell lines and PDX samples are never used for training or model selection |
-| Beats trivial baselines | Every metric is reported next to "predict the mean", "copy the nearest dose" and a sequencing-depth-only model |
-| No label leakage | Labels are targets only, never inputs |
-| Model choice is earned | Ridge, gradient boosting and the hierarchical network compete. The release model is picked automatically by CV |
-| Gated releases | `parpi gate` blocks publishing if the model does not beat baselines or generalise to external ovarian data |
-| Numbers are never hand-typed | The model card is generated from the metrics files of the run that produced the model |
+| Honest splits | Whole doses, then whole cell lines are held out; tumor data never trains or selects a model |
+| Strong baselines | Every metric sits next to "predict the mean", "copy the nearest dose" and a depth-only model |
+| Labels are targets only | No label is ever a model input |
+| Model choice is earned | Ridge, gradient boosting and the hierarchical network compete; the simpler model wins ties |
+| Pre-registration | Feature variants, the selection rule and the single tumor test were logged before results existed |
+| Gated releases | `parpi gate` blocks publishing unless the claimed tests pass |
+| Traceable results | Config hash, git commit, package versions and data/gene-set SHA-256s stored with each model |
+| Reproducible | `uv.lock`, checksummed downloads, seeded deterministic training, 45+ tests in CI |
+| No hand-typed numbers | The model card and the figure are generated from the run's metrics |
 
-Details: [docs/DESIGN.md](docs/DESIGN.md) · data provenance: [docs/DATA.md](docs/DATA.md) ·
-release setup: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-
-## Models
-
-| Name | Input | Notes |
-|---|---|---|
-| `ridge` | pathway scores | Linear, exact coefficients, strong baseline |
-| `hgb` | pathway scores | Gradient-boosted trees, non-linear baseline |
-| `hierarchical` | per-gene ranks | Gene → pathway (learned within-pathway gene weights) → cell (pathway attention). PyTorch |
-| dose-response | log-dose | PCHIP interpolation of pathway activity, bootstrap bands, extrapolation flagged |
-
-All models are bootstrap ensembles, which is where the per-cell uncertainty comes from.
+More: [design](docs/DESIGN.md) · [data](docs/DATA.md) · [every decision and why](docs/DECISIONS.md) ·
+[deployment](docs/DEPLOYMENT.md)
 
 ## Repository layout
 
 ```
-configs/            run configs (default = real data, smoke = synthetic) + dataset specs
-src/parpi/          package: data/, models/, preprocess, evaluation, pipeline, bundle, cli
-app/                Gradio web app (logic.py is unit-tested; app.py is the UI)
-tests/              pytest suite (synthetic data with planted signal)
-scripts/            Hugging Face Space deployment
-.github/workflows/  ci.yml · train.yml (manual real-data run) · release.yml (tag → publish)
-Dockerfile          one image for the CLI, batch inference and the web app
-dvc.yaml            optional stage caching
+configs/            run configs (release, multiline_a/b, smoke, ...) + one file per dataset
+src/parpi/          data/, models/, preprocess, evaluation, pipeline, bundle, report, cli
+app/                Gradio web app (logic.py is unit-tested)
+scripts/            diagnostics, README figure, Hugging Face Space deployment
+tests/              pytest suite on synthetic data with a planted signal
+.github/workflows/  ci.yml · train.yml (manual real-data run) · release.yml (tag -> publish)
 ```
 
 ## Citation
 
-If you use this, cite the data source: França et al., *Cellular adaptation to cancer therapy
-along a resistance continuum*, Nature 631, 876–883 (2024). See `CITATION.cff`.
+Data: França et al., *Cellular adaptation to cancer therapy along a resistance continuum*,
+Nature 631, 876–883 (2024), GEO SuperSeries GSE247691. Model architecture: Satyal, Long, Gao,
+*Attention-Based Hierarchical Graph Autoencoder for Dose-Specific Single-Cell Resistance
+Dynamics*. See `CITATION.cff`.

@@ -7,7 +7,7 @@ on:
     inputs:
       config:
         description: Config file
-        default: configs/default.yaml
+        default: configs/release.yaml
 
 permissions:
   contents: read
@@ -36,6 +36,6 @@ jobs:
           name: run-${{ github.run_id }}
           path: |
             outputs
-            data/processed/summary.json
+            outputs/release/processed/summary.json
             data/raw/*/MANIFEST.json
             data/genesets/genesets.lock.json

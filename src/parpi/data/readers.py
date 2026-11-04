@@ -57,7 +57,9 @@ def _read_h5ad(path: Path) -> CellData:
     X = adata.raw.X if adata.raw is not None else adata.X
     genes = adata.raw.var_names if adata.raw is not None else adata.var_names
     # read_h5ad loads obs into memory as a DataFrame; the stubs also allow a lazy Dataset2D.
-    obs = cast(pd.DataFrame, adata.obs).reset_index(names="barcode")
+    obs = cast(pd.DataFrame, adata.obs)
+    # Files written by CellData.write_h5ad already carry a `barcode` column.
+    obs = obs.reset_index(drop=True) if "barcode" in obs else obs.reset_index(names="barcode")
     return CellData(X=sp.csr_matrix(X), obs=obs, genes=np.asarray(genes))
 
 

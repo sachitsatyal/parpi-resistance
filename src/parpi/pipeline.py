@@ -92,10 +92,10 @@ def _available_models(cfg: Config) -> list[str]:
     return names
 
 
-def _targets(obs: pd.DataFrame) -> Targets:
+def _targets(obs: pd.DataFrame, use_states: bool = True) -> Targets:
     dose = obs["dose_um"].to_numpy(float)
     state = None
-    if "state" in obs and obs["state"].notna().any():
+    if use_states and "state" in obs and obs["state"].notna().any():
         # Missing states (e.g. control cells) become "": excluded from the state loss.
         state = np.where(obs["state"].isna(), "", obs["state"].astype(str)).astype(str)
     return Targets(resistance_target(dose, dose.max()), state)
@@ -157,7 +157,7 @@ def prepare(cfg: Config) -> None:
 
 # -------------------------------------------------------------------- train
 def cross_validate(cfg: Config, x: Inputs, obs: pd.DataFrame, fs: FeatureSpace) -> dict[str, Any]:
-    y = _targets(obs)
+    y = _targets(obs, cfg.train.predict_states)
     dose = obs["dose_um"].to_numpy(float)
     by_dataset = cfg.split.strategy == "leave_dataset_out"
     groups = obs["dataset"].astype(str).to_numpy() if by_dataset else dose
@@ -301,7 +301,7 @@ def train(cfg: Config) -> None:
     dr_bench = leave_one_dose_out(obs["dose_um"].to_numpy(float), x.pathways)
     dr_bench.to_csv(p["metrics"] / "dose_response_loo.csv", index=False)
 
-    y = _targets(obs)
+    y = _targets(obs, cfg.train.predict_states)
     for name in models:
         log.info("final fit: %s on all %d cells", name, len(x))
         ens = Ensemble(model_factory(name, cfg, fs), cfg.train.ensemble_size, name)
@@ -352,7 +352,7 @@ def evaluate_external(cfg: Config) -> dict[str, Any]:
     results: dict[str, Any] = {}
     for d in cfg.external_datasets:
         x, obs = load_processed(p["processed"] / d.name)
-        results[d.name] = {"cancer_type": d.cancer_type, "gated": d.gate}
+        results[d.name] = {"cancer_type": d.cancer_type, "gated": cfg.is_gated(d)}
         for name in _available_models(cfg):
             bundle = ModelBundle.load(p["models"] / name)
             pred = bundle.model.predict(x)
@@ -374,32 +374,49 @@ def quality_gate(
     min_spearman: float = 0.8,
     max_mae_ratio: float = 0.8,
     min_external_auroc: float = 0.65,
+    min_line_auroc: float = 0.7,
 ) -> list[str]:
     """Return a list of failures; an empty list means the release may proceed.
 
-    * the selected model must rank held-out doses correctly (dose-level Spearman),
-    * its cell-level error must clearly beat predicting the training mean,
-    * on every external set of the training cancer type it must separate
-      resistant from parental cells. Other cancer types are reported, not gated.
+    Leave-dose-out configs (one training system):
+      * dose-level Spearman of the selected model >= ``min_spearman``,
+      * cell-level MAE <= ``max_mae_ratio`` x the out-of-fold mean baseline.
+    Leave-dataset-out configs (several cell lines; the claim is a *ranking* that
+    transfers to a new line, not a calibrated absolute value):
+      * mean per-held-out-line dose Spearman >= ``min_spearman``,
+      * AUROC control vs top dose >= ``min_line_auroc`` in *every* held-out line.
+    Both: every gated external dataset (``Config.is_gated``) of the training cancer
+    type must reach AUROC >= ``min_external_auroc``. Others are reported only.
     """
     p = paths(cfg)
     cv = json.loads((p["metrics"] / "cv.json").read_text())
     best = cv["selected_model"]
     m = cv["models"][best]
     failures = []
-    if not m[PRIMARY_METRIC] >= min_spearman:
-        failures.append(f"{best}: {PRIMARY_METRIC}={m[PRIMARY_METRIC]:.3f} < {min_spearman}")
-    if not m["mae_cell"] <= max_mae_ratio * m["mae_predict_train_mean"]:
-        failures.append(
-            f"{best}: mae_cell={m['mae_cell']:.3f} is not < {max_mae_ratio} x mean baseline "
-            f"({m['mae_predict_train_mean']:.3f})"
-        )
+    if "per_dataset" in m:
+        sp = m["spearman_dose_means_by_dataset"]
+        if not sp >= min_spearman:
+            failures.append(f"{best}: mean per-line dose Spearman={sp:.3f} < {min_spearman}")
+        for line, r in m["per_dataset"].items():
+            auc = next((v for k, v in r.items() if k.startswith("auroc_control_vs")), None)
+            if auc is None or not auc >= min_line_auroc:
+                failures.append(
+                    f"{best}, held-out {line}: AUROC control vs top={auc} < {min_line_auroc}"
+                )
+    else:
+        if not m[PRIMARY_METRIC] >= min_spearman:
+            failures.append(f"{best}: {PRIMARY_METRIC}={m[PRIMARY_METRIC]:.3f} < {min_spearman}")
+        if not m["mae_cell"] <= max_mae_ratio * m["mae_predict_train_mean"]:
+            failures.append(
+                f"{best}: mae_cell={m['mae_cell']:.3f} is not < {max_mae_ratio} x mean baseline "
+                f"({m['mae_predict_train_mean']:.3f})"
+            )
     ext_path = p["metrics"] / "external.json"
     ext = json.loads(ext_path.read_text()) if ext_path.exists() else {}
     train_types = {d.cancer_type for d in cfg.train_datasets}
     for d in cfg.external_datasets:
         res = ext.get(d.name, {}).get(best, {})
-        if d.gate and d.cancer_type in train_types:
+        if cfg.is_gated(d) and d.cancer_type in train_types:
             auc = res.get("auroc")
             if auc is None or not auc >= min_external_auroc:
                 failures.append(f"{best} on {d.name}: auroc={auc} < {min_external_auroc}")

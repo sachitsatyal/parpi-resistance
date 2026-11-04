@@ -82,11 +82,20 @@ def report(config: str, hf_repo: str) -> None:
 @click.option("--min-spearman", default=0.8, show_default=True)
 @click.option("--max-mae-ratio", default=0.8, show_default=True)
 @click.option("--min-external-auroc", default=0.65, show_default=True)
-def gate(config: str, min_spearman: float, max_mae_ratio: float, min_external_auroc: float) -> None:
+@click.option("--min-line-auroc", default=0.7, show_default=True)
+def gate(
+    config: str,
+    min_spearman: float,
+    max_mae_ratio: float,
+    min_external_auroc: float,
+    min_line_auroc: float,
+) -> None:
     """Fail (exit 1) unless the selected model passes the release quality gate."""
     from parpi.pipeline import quality_gate
 
-    failures = quality_gate(load_config(config), min_spearman, max_mae_ratio, min_external_auroc)
+    failures = quality_gate(
+        load_config(config), min_spearman, max_mae_ratio, min_external_auroc, min_line_auroc
+    )
     for f in failures:
         click.echo(f"GATE FAILED: {f}", err=True)
     if failures:

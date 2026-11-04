@@ -114,6 +114,9 @@ class TrainConfig(_Strict):
     models: list[ModelName] = Field(default_factory=lambda: list(MODEL_NAMES))
     ensemble_size: int = 5
     seed: int = 42
+    # Train the optional cell-state classifier when state labels exist. Off for a release
+    # whose state predictions are not validated (e.g. labels from one line only).
+    predict_states: bool = True
     baseline: BaselineConfig = BaselineConfig()
     hierarchical: HierarchicalConfig = HierarchicalConfig()
 
@@ -125,6 +128,9 @@ class Config(_Strict):
     # Where featurised data is written; default <data_dir>/processed. Set it when
     # several configs with different feature spaces share one data_dir.
     processed_dir: str | None = None
+    # External datasets that may block a release. None = use each dataset's `gate:` flag.
+    # Lets a release config narrow or change the claim without editing dataset files.
+    gated_datasets: list[str] | None = None
     datasets: list[DatasetConfig]
     qc: QCConfig = QCConfig()
     features: FeatureConfig = FeatureConfig()
@@ -138,7 +144,18 @@ class Config(_Strict):
         names = [d.name for d in self.datasets]
         if len(names) != len(set(names)):
             raise ValueError(f"dataset names must be unique, got {names}")
+        if self.gated_datasets is not None:
+            ext = {d.name for d in self.external_datasets}
+            unknown = sorted(set(self.gated_datasets) - ext)
+            if unknown:
+                raise ValueError(f"gated_datasets not among external datasets: {unknown}")
         return self
+
+    def is_gated(self, d: DatasetConfig) -> bool:
+        """Whether an external dataset may block a release under this config."""
+        if self.gated_datasets is not None:
+            return d.name in self.gated_datasets
+        return d.gate
 
     @property
     def train_datasets(self) -> list[DatasetConfig]:

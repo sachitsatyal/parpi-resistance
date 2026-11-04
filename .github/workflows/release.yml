@@ -33,14 +33,14 @@ jobs:
             data/genesets
           key: geo-${{ hashFiles('configs/datasets/**') }}
       - run: uv run pytest -q -m "not network"
-      - run: uv run parpi prepare -c configs/default.yaml
-      - run: uv run parpi train -c configs/default.yaml
-      - run: uv run parpi evaluate -c configs/default.yaml
-      - run: uv run parpi report -c configs/default.yaml --hf-repo "${{ vars.HF_MODEL_REPO }}"
+      - run: uv run parpi prepare -c configs/release.yaml
+      - run: uv run parpi train -c configs/release.yaml
+      - run: uv run parpi evaluate -c configs/release.yaml
+      - run: uv run parpi report -c configs/release.yaml --hf-repo "${{ vars.HF_MODEL_REPO }}"
       - name: Quality gate (blocks the release)
-        run: uv run parpi gate -c configs/default.yaml
+        run: uv run parpi gate -c configs/release.yaml
       - id: sel
-        run: echo "model=$(cat outputs/models/SELECTED)" >> "$GITHUB_OUTPUT"
+        run: echo "model=$(cat outputs/release/models/SELECTED)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with: { name: release-outputs, path: outputs }
 
@@ -57,16 +57,16 @@ jobs:
       - name: Push model bundle to the Hub (tagged with the release version)
         env: { HF_TOKEN: "${{ secrets.HF_TOKEN }}" }
         run: >
-          uv run parpi push -m outputs/models/${{ needs.train-and-gate.outputs.model }}
+          uv run parpi push -m outputs/release/models/${{ needs.train-and-gate.outputs.model }}
           --repo "${{ vars.HF_MODEL_REPO }}" --revision-tag "${{ github.ref_name }}"
       - name: GitHub release with metrics
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            outputs/metrics/cv.json
-            outputs/metrics/external.json
-            outputs/metrics/dose_response_loo.csv
-            outputs/models/${{ needs.train-and-gate.outputs.model }}/README.md
+            outputs/release/metrics/cv.json
+            outputs/release/metrics/external.json
+            outputs/release/metrics/dose_response_loo.csv
+            outputs/release/models/${{ needs.train-and-gate.outputs.model }}/README.md
 
   publish-image:
     needs: train-and-gate

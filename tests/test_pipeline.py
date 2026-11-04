@@ -6,6 +6,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 from click.testing import CliRunner
 
 from parpi.bundle import ModelBundle
@@ -117,8 +118,6 @@ def test_leave_dataset_out_pipeline(tmp_path):
             out.obs["state"] = np.where(out.obs["dose_um"] >= 80, "late", "early")
         return out
 
-    import pytest
-
     mp = pytest.MonkeyPatch()
     mp.setattr(ds_mod, "annotate", annotate_with_states)
     try:
@@ -142,3 +141,74 @@ def test_leave_dataset_out_pipeline(tmp_path):
         assert m["auroc_control_vs_320uM"] > 0.9
     summary = json.loads((paths(cfg)["processed"] / "summary.json").read_text())
     assert "synthetic_train_2/T320" in summary["train"]["qc_by_condition"]
+
+    # In-vitro release gate (leave-dataset-out) + scope-aware model card.
+    from parpi.pipeline import quality_gate
+    from parpi.report import write_model_card
+
+    evaluate_external(cfg)
+    assert quality_gate(cfg) == []
+    assert any("AUROC control vs top" in f for f in quality_gate(cfg, min_line_auroc=1.01))
+    card = write_model_card(cfg).read_text(encoding="utf-8")
+    assert "Validated for" in card and "held-out line" in card
+    assert "not a tumor or patient" in card
+
+    # gated_datasets overrides the dataset's own flag; unknown names are refused.
+    raw["gated_datasets"] = []
+    path.write_text(yaml.safe_dump(raw))
+    ungated = load_config(path)
+    assert not ungated.is_gated(ungated.external_datasets[0])
+    raw["gated_datasets"] = ["nope"]
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="gated_datasets"):
+        load_config(path)
+
+
+def test_top_pathways_are_signed_for_linear_models(smoke_config):
+    """Resistant cells list planted sets with the right direction: SET_00-02 up, SET_03 down."""
+    from collections import Counter
+
+    prepare(smoke_config)
+    train(smoke_config)
+    bundle = ModelBundle.load(paths(smoke_config)["models"] / "ridge")
+    assert bundle._signed_weights() is not None
+    cd, _ = simulate(
+        {"resistant": 320.0}, cells_per_condition=60, seed=12, resistant_override={"resistant": 1.0}
+    )
+    tops = Counter(p for t in bundle.predict(cd, top_k=3)["top_pathways"] for p in t.split(";"))
+    planted = sum(tops[f"SET_0{i} (up)"] for i in range(3)) + tops["SET_03 (down)"]
+    assert planted > 0.5 * sum(tops.values())
+    assert tops["SET_03 (up)"] == 0  # the down-regulated set never counts as raised
+
+
+def test_predict_states_off_drops_state_outputs(smoke_config, tmp_path):
+    import yaml
+
+    from parpi.config import load_config
+    from tests.conftest import ROOT
+
+    raw = yaml.safe_load((ROOT / "configs" / "smoke.yaml").read_text())
+    raw.update(data_dir=str(tmp_path / "d"), output_dir=str(tmp_path / "o"))
+    raw["train"].update(models=["ridge"], predict_states=False)
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    cfg = load_config(path)
+    from parpi.data import datasets as ds_mod
+
+    orig = ds_mod.annotate
+
+    def with_states(cd, dcfg):
+        out = orig(cd, dcfg)
+        out.obs["state"] = np.where(out.obs.get("dose_um", 0) >= 80, "late", "early")
+        return out
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(ds_mod, "annotate", with_states)
+    try:
+        prepare(cfg)
+    finally:
+        mp.undo()
+    train(cfg)
+    cd, _ = simulate({"x": 40.0}, cells_per_condition=10, seed=3)
+    pred = ModelBundle.load(paths(cfg)["models"] / "ridge").predict(cd)
+    assert "predicted_state" not in pred.columns

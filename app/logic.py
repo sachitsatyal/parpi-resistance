@@ -38,7 +38,8 @@ def score_file(
         )
     pred = bundle.predict(cd, apply_qc=apply_qc)
     summary = (
-        pred.groupby("sample")["resistance_score"]
+        pred.assign(score=pred["resistance_score"].astype(float))
+        .groupby("sample")["score"]
         .agg(cells="size", mean="mean", median="median", std="std")
         .round(3)
         .reset_index()
@@ -56,9 +57,22 @@ def score_file(
 
 def score_histogram(pred: pd.DataFrame):  # type: ignore[no-untyped-def]
     fig, ax = plt.subplots(figsize=(6, 3.2))
-    for sample, grp in pred.groupby("sample"):
-        ax.hist(grp["resistance_score"], bins=np.linspace(0, 1, 31), alpha=0.6, label=str(sample))
-    ax.set_xlabel("Resistance score (0 = drug-naive, 1 = top training dose)")
+    # Samples ordered by mean score: lowest in grey, then shades of one blue.
+    order = pred.groupby("sample")["resistance_score"].mean().sort_values().index
+    n = len(order)
+    for i, sample in enumerate(order):
+        grp = pred[pred["sample"] == sample]
+        colour = "#9a9a92" if i == 0 and n > 1 else plt.cm.Blues(0.45 + 0.5 * i / max(n - 1, 1))
+        ax.hist(
+            grp["resistance_score"],
+            bins=np.linspace(0, 1, 31),
+            alpha=0.75,
+            color=colour,
+            label=str(sample),
+        )
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.set_xlabel("Adaptation score (0 = untreated, 1 = top training dose)")
     ax.set_ylabel("Cells")
     if pred["sample"].nunique() <= 10:
         ax.legend(frameon=False, fontsize=8)

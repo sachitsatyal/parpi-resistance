@@ -169,7 +169,7 @@ hierarchy with attention) and strengthen training and evaluation around it.
 - [x] Find COV362 (and OVSAHO, Kuramochi-10x): GSE247689, GSE247688.
 - [x] Run multi-line variants A and B (**A selected, ridge**; platform shift ruled out).
 - [x] Single final PDX evaluation: **AUROC 0.614, fails the gate** (one of four resistant tumors stands out).
-- [ ] Decide release scope.
+- [x] Decide release scope: **in-vitro v0.1**.
 - [ ] Confirm the GSE202435 (breast) layout; find COV362's accession.
 - [ ] First real-data run, `uv run parpi reproduce -c configs/default.yaml`, then `parpi gate`.
 - [x] Push to GitHub.
@@ -193,3 +193,22 @@ hierarchy with attention) and strengthen training and evaluation around it.
 | v1 limitations reworded neutrally in `docs/DESIGN.md` and here ("Limitations of v1 and how v2 addresses them"), same facts | The v1 paper is the author's own and stays on the CV; v2 is presented as a follow-up that tests and extends it, not an audit of it. The paper's core architecture won within a cell line under stricter evaluation |
 | Complete project guide written as the project doc *PARPi Resistance Project: Complete Guide* | One place to follow up later: v1, v2 design, data, models, evaluation, results, claims, engineering, CV and interview prep |
 | CI `lint` job failing since the Kuramochi real-data commit (tests and Docker fine) | mypy with the locked PyTorch, pandas-stubs and anndata type information found 13 annotation-only errors that the sandbox's mypy couldn't see. Fixes: declared registered buffers (`gene_idx`, `set_idx`, `act_mean`, `act_std`) as `torch.Tensor`; `pd.Index` for `var_names`; `pd.DataFrame(adata.obs)`; renamed a reused variable. No behaviour change |
+
+## 11. v0.1 release scope (2026-11-03)
+
+| Decision | Reason |
+|---|---|
+| **Release v0.1 as an in-vitro tool** (user's choice, recommended) | The cross-line and cross-platform results are validated; the tumor test failed. A scoped release with the PDX failure stated openly is honest and useful |
+| `configs/release.yaml`: retrains the pre-registered selection (variant A features, ridge) on the 3 lines; `gated_datasets: [kuramochi_10x]`; PDX reported only | Reproducible from the tagged commit alone; ridge-only training fits on GitHub runners |
+| Gate for leave-line-out configs: mean per-line dose Spearman ≥ 0.8 **and** AUROC untreated vs top dose ≥ 0.7 in **every** held-out line, plus gated external AUROC ≥ 0.65; no absolute-MAE criterion | The claim is now a ranking that transfers to a new line, not a calibrated level. **Transparency:** this gate and its 0.7 threshold were set *after* seeing the results (lowest line 0.756). It encodes the narrowed claim; it doesn't replace the failed pre-registered PDX test, which stays reported in the model card and README |
+| Model card rewritten: "Validated for" / "Not validated for" generated from gated vs report-only datasets and their scores | The card can't claim more than the run tested |
+| README: status, scope, a results figure drawn by `scripts/make_readme_figure.py` from the run's metrics (bars start at chance, 0.5) | A visitor gets the point in seconds; numbers can't drift from the metrics |
+| Release and manual-training workflows use `configs/release.yaml` | The default config included unchecked breast file patterns |
+| Release run on the workstation (`configs/release.yaml`) | **Reproduced exactly**: ridge leave-line-out metrics are identical to the multiline_a run (dose Spearman 0.70 / 0.99 / 0.90, AUROC 0.756 / 0.942 / 0.778); Kuramochi-10x 0.9999, PDX 0.614 (report only). `quality gate passed`. README figure drawn from these metrics |
+| Web-app example button: 250 untreated (C.R1) + 250 320 µM (T320.A.R1) Kuramochi-10x cells, model genes only (`scripts/make_example.py` → `app/examples/kuramochi_10x_example.h5ad`) | A visitor (e.g. a recruiter) has no single-cell file. The example comes from the platform-check data, which was never used for training, so the demo is honest |
+| Model-card tab shows the card stored with the loaded model; app text states the in-vitro scope | The app and the card always describe the same model |
+| Small fixes: figure prints 4 decimals near 0.65 (0.6498 isn't shown as 0.650); card shows "n/a" instead of 0 cells for sets without resistant labels | Avoid misleading rounding and counts |
+| Bug: the example `.h5ad` failed in the app ("barcode already exists") | `CellData.write_h5ad` stores a `barcode` column, and the reader then tried to add it again from the index. The reader now keeps an existing column. The round-trip test that covers this only runs where anndata is installed (CI and the workstation), not in the sandbox |
+| Web app theme: blue primary colour instead of Gradio's orange (user's choice) | Matches the figures' blue accent. `theme` is passed to `Blocks()` or `launch()`, whichever the installed Gradio version accepts |
+| Review of the first app predictions (example: 250 untreated + 250 at 320 µM, unseen 10x data) | Scores right: mean 0.098 vs 0.683, AUROC 0.9999. Two output problems found before publishing: (1) **untreated cells were assigned S1–S5 states**, up to 90% confident; the state classifier saw only labelled Kuramochi cells (controls excluded) and was never validated across lines → **state outputs dropped from v0.1** (`train.predict_states: false`). (2) **Per-cell top pathways ignored the sign of each weight** (my bug), so they were near-identical for untreated and treated cells → now signed contributions (standardised ridge weight × the cell's standardised activity), each tagged "(up)" or "(down)" vs. training cells. Test with planted pathways added |
+| App polish | Summary rounded to 3 decimals; histogram grey (lowest sample) → blue shades; "adaptation score" wording |

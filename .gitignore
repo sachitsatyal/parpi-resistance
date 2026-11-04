@@ -17,3 +17,13 @@ build/
 /mlruns/
 predictions.csv
 dose_curve.csv
+
+# Local upload examples (made by scripts/make_upload_examples.py)
+/upload_examples/
+release.log
+multiline_*.log
+final_*.log
+final_eval.txt
+evaluate_log.txt
+pdx_report.txt
+lines_report.txt

@@ -62,6 +62,7 @@ class ModelBundle:
     model: Any  # Ensemble
     dose_response: DoseResponseModel | None
     metadata: dict[str, Any] = field(default_factory=dict)
+    folder: Path | None = None  # where the bundle was loaded from (model card lives there)
 
     def save(self, folder: Path) -> None:
         folder.mkdir(parents=True, exist_ok=True)
@@ -89,6 +90,7 @@ class ModelBundle:
             model=joblib.load(folder / "model.joblib"),
             dose_response=joblib.load(dr_path) if dr_path.exists() else None,
             metadata=meta,
+            folder=folder,
         )
 
     # ----------------------------------------------------------- inference
@@ -111,18 +113,39 @@ class ModelBundle:
         out.attrs["gene_coverage"] = coverage
         return out.reset_index(drop=True)
 
+    def _signed_weights(self) -> np.ndarray | None:
+        """Mean standardised coefficient per pathway for linear ensembles, else None."""
+        coefs = []
+        for member in getattr(self.model, "members", []):
+            steps = getattr(getattr(member, "reg", None), "steps", None)
+            last = steps[-1][1] if steps else None
+            if last is None or not hasattr(last, "coef_"):
+                return None
+            coefs.append(np.ravel(last.coef_))
+        return np.mean(coefs, axis=0) if coefs else None
+
     def _top_pathways(self, x: Inputs, k: int) -> list[str]:
-        """Model-important pathways that are most elevated in each cell vs. training cells."""
+        """Pathways that push each cell's score up the most, relative to training cells.
+
+        Linear models: contribution = standardised weight x the cell's standardised
+        pathway activity, so a pathway counts only when its activity moves the score
+        upward in this cell; that can be a pathway *below* its usual level when its
+        weight is negative. Each name is tagged "(up)" or "(down)": the cell's activity
+        vs. training cells. Other models: unsigned importance x elevation (approximate).
+        """
         names = np.array(self.features.gene_sets.names)
-        imp = self.model.pathway_importance()
         # Standardise against the *training* distribution so results do not depend
         # on what else is in the query batch.
         mu = np.asarray(self.metadata.get("pathway_mean", x.pathways.mean(0)))
         sd = np.asarray(self.metadata.get("pathway_std", x.pathways.std(0)))
         z = (x.pathways - mu) / (sd + 1e-9)
-        contrib = z * imp
+        w = self._signed_weights()
+        contrib = z * (w if w is not None else self.model.pathway_importance())
         top = np.argsort(-contrib, axis=1)[:, :k]
-        return [";".join(names[row]) for row in top]
+        return [
+            ";".join(f"{names[j]} ({'up' if z[i, j] >= 0 else 'down'})" for j in row)
+            for i, row in enumerate(top)
+        ]
 
     def pathway_importance(self) -> pd.DataFrame:
         imp = self.model.pathway_importance()
